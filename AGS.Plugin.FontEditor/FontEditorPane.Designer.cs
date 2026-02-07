@@ -30,7 +30,7 @@
 		{
 			this.FlowCharacterPanel = new System.Windows.Forms.FlowLayoutPanel();
 			this.GroupBox = new System.Windows.Forms.GroupBox();
-			this.BtnExtend256 = new System.Windows.Forms.Button();
+			this.BtnExtend1535 = new System.Windows.Forms.Button();
 			this.ZoomDrawingArea = new System.Windows.Forms.TrackBar();
 			this.LblZoom = new System.Windows.Forms.Label();
 			this.PanelSize = new System.Windows.Forms.Panel();
@@ -101,23 +101,23 @@
 			this.GroupBox.Anchor = ((System.Windows.Forms.AnchorStyles)(((System.Windows.Forms.AnchorStyles.Top | System.Windows.Forms.AnchorStyles.Bottom) 
             | System.Windows.Forms.AnchorStyles.Left)));
 			this.GroupBox.Controls.Add(this.FlowCharacterPanel);
-			this.GroupBox.Controls.Add(this.BtnExtend256);
+			this.GroupBox.Controls.Add(this.BtnExtend1535);
 			this.GroupBox.Location = new System.Drawing.Point(6, 6);
 			this.GroupBox.Name = "GroupBox";
 			this.GroupBox.Size = new System.Drawing.Size(320, 467);
 			this.GroupBox.TabIndex = 5;
 			this.GroupBox.TabStop = false;
 			this.GroupBox.Text = "Selected font settings";
-			// 
-			// BtnExtend256
-			// 
-			this.BtnExtend256.Location = new System.Drawing.Point(227, 0);
-			this.BtnExtend256.Name = "BtnExtend256";
-			this.BtnExtend256.Size = new System.Drawing.Size(86, 23);
-			this.BtnExtend256.TabIndex = 19;
-			this.BtnExtend256.Text = "Extend To 256 characters";
-			this.BtnExtend256.UseVisualStyleBackColor = true;
-			this.BtnExtend256.Click += new System.EventHandler(this.BtnExtend256_Click);
+            // 
+            // BtnExtend1535
+            // 
+            this.BtnExtend1535.Location = new System.Drawing.Point(227, 0);
+			this.BtnExtend1535.Name = "BtnExtend1535";
+			this.BtnExtend1535.Size = new System.Drawing.Size(94, 23);
+			this.BtnExtend1535.TabIndex = 19;
+			this.BtnExtend1535.Text = "Extend To 1535 characters";
+			this.BtnExtend1535.UseVisualStyleBackColor = true;
+			this.BtnExtend1535.Click += new System.EventHandler(this.BtnExtend1535_Click);
 			// 
 			// ZoomDrawingArea
 			// 
@@ -601,7 +601,7 @@
 		private System.Windows.Forms.Button BtnSwapVertically;
 		private System.Windows.Forms.Button BtnOutline;
 		private System.Windows.Forms.Button BtnOutlineFont;
-		private System.Windows.Forms.Button BtnExtend256;
+		private System.Windows.Forms.Button BtnExtend1535;
 		private System.Windows.Forms.Button BtnRenderText;
 		private System.Windows.Forms.PictureBox PictRenderText;
 		private System.Windows.Forms.Button BtnSetText;

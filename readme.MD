@@ -1,9 +1,4 @@
-Font editor for WFN and SCI fonts
-available as AGS plugin and stand alone variant
+This is an updated version for Rulaman's font editor for WFN and SCI fonts in both its AGS plugin and standalone variants.
+Font extension was increased from up to 256 to 1535 glyphs, which is the Unicode range of the Hebrew alphabet.
 
-
-
-Open Warning:
-I will do my best to document and test my code, but it is presented here as a "best-effort".
-
-Feedback, comments, and assistance are always appreciated!
+Also, performance for glyphs manipulation such as changing all glyphs height/width to current glyph and outline the entire font got improved and now works much faster - the performance fix was done using ChatGPT.
