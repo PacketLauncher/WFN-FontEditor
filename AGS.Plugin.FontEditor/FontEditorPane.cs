@@ -275,7 +275,7 @@ namespace AGS.Plugin.FontEditor
         private void BtnExtend1535_Click(object sender, EventArgs e)
         {
             int len = FontInfo.Character.Length;
-            if (len <= 128)
+            if (len <= 1535)
             {
                 Array.Resize(ref FontInfo.Character, 1535);
 
