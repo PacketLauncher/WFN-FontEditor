@@ -40,7 +40,7 @@ namespace WFN_FontEditor
 			{
 				FontListBox.Items.Add(new FontPane(fbd.SelectedPath, System.IO.Path.GetFileName(item), System.IO.Path.GetFileName(item)));
 			}
-		}
+        }
 		private void BtnSave_Click(object sender, EventArgs e)
 		{
 			foreach ( object item in TabControl.Controls )
