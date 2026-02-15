@@ -65,7 +65,7 @@ namespace Indexed
 
             // For 8bpp we've created an palette with just greyscale colours.
             // You can set up any palette you want here. Here are some possibilities:
-            // greyscale: for (int i=0; i<1535; i++) bmi.cols[i]=MAKERGB(i,i,i);
+            // greyscale: for (int i=0; i<65535; i++) bmi.cols[i]=MAKERGB(i,i,i);
             // rainbow: bmi.biClrUsed=216; bmi.biClrImportant=216; int[] colv=new int[6]{0,51,102,153,204,255};
             //          for (int i=0; i<216; i++) bmi.cols[i]=MAKERGB(colv[i/36],colv[(i/6)%6],colv[i%6]);
             // optimal: a difficult topic: http://en.wikipedia.org/wiki/Color_quantization

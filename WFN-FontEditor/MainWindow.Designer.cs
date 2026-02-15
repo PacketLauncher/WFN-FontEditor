@@ -32,6 +32,7 @@
 			this.BtnOpen = new System.Windows.Forms.Button();
 			this.TabControl = new System.Windows.Forms.TabControl();
 			this.BtnSave = new System.Windows.Forms.Button();
+			this.BtnSaveAs = new System.Windows.Forms.Button();
 			this.FontListBox = new System.Windows.Forms.ListBox();
 			this.BtnConvert = new System.Windows.Forms.Button();
 			this.TxtTextHeight = new System.Windows.Forms.TextBox();
@@ -68,10 +69,20 @@
 			this.BtnSave.Text = "Save";
 			this.BtnSave.UseVisualStyleBackColor = true;
 			this.BtnSave.Click += new System.EventHandler(this.BtnSave_Click);
-			// 
-			// FontListBox
-			// 
-			this.FontListBox.Anchor = ((System.Windows.Forms.AnchorStyles)(((System.Windows.Forms.AnchorStyles.Top | System.Windows.Forms.AnchorStyles.Bottom)
+            // 
+            // BtnSaveAs
+            // 
+            this.BtnSaveAs.Location = new System.Drawing.Point(250, 12);
+            this.BtnSaveAs.Name = "BtnSaveAs";
+            this.BtnSaveAs.Size = new System.Drawing.Size(113, 23);
+            this.BtnSaveAs.TabIndex = 1;
+            this.BtnSaveAs.Text = "Save as";
+            this.BtnSaveAs.UseVisualStyleBackColor = true;
+            this.BtnSaveAs.Click += new System.EventHandler(this.BtnSaveAs_Click);
+            // 
+            // FontListBox
+            // 
+            this.FontListBox.Anchor = ((System.Windows.Forms.AnchorStyles)(((System.Windows.Forms.AnchorStyles.Top | System.Windows.Forms.AnchorStyles.Bottom)
 						| System.Windows.Forms.AnchorStyles.Left)));
 			this.FontListBox.FormattingEnabled = true;
 			this.FontListBox.Location = new System.Drawing.Point(12, 48);
@@ -82,7 +93,7 @@
 			// 
 			// BtnConvert
 			// 
-			this.BtnConvert.Location = new System.Drawing.Point(250, 12);
+			this.BtnConvert.Location = new System.Drawing.Point(369, 12);
 			this.BtnConvert.Name = "BtnConvert";
 			this.BtnConvert.Size = new System.Drawing.Size(113, 23);
 			this.BtnConvert.TabIndex = 1;
@@ -92,7 +103,7 @@
 			// 
 			// TxtTextHeight
 			// 
-			this.TxtTextHeight.Location = new System.Drawing.Point(434, 14);
+			this.TxtTextHeight.Location = new System.Drawing.Point(554, 14);
 			this.TxtTextHeight.MaxLength = 3;
 			this.TxtTextHeight.Name = "TxtTextHeight";
 			this.TxtTextHeight.Size = new System.Drawing.Size(43, 20);
@@ -103,7 +114,7 @@
 			// LblTextHeight
 			// 
 			this.LblTextHeight.AutoSize = true;
-			this.LblTextHeight.Location = new System.Drawing.Point(369, 17);
+			this.LblTextHeight.Location = new System.Drawing.Point(489, 17);
 			this.LblTextHeight.Name = "LblTextHeight";
 			this.LblTextHeight.Size = new System.Drawing.Size(59, 13);
 			this.LblTextHeight.TabIndex = 5;
@@ -120,6 +131,7 @@
 			this.Controls.Add(this.TabControl);
 			this.Controls.Add(this.BtnConvert);
 			this.Controls.Add(this.BtnSave);
+			this.Controls.Add(this.BtnSaveAs);
 			this.Controls.Add(this.BtnOpen);
 			this.Icon = ((System.Drawing.Icon)(resources.GetObject("$this.Icon")));
 			this.Name = "MainWindow";
@@ -134,6 +146,7 @@
 		private System.Windows.Forms.Button BtnOpen;
 		private System.Windows.Forms.TabControl TabControl;
 		private System.Windows.Forms.Button BtnSave;
+		private System.Windows.Forms.Button BtnSaveAs;
 		private System.Windows.Forms.ListBox FontListBox;
 		private System.Windows.Forms.Button BtnConvert;
 		private System.Windows.Forms.TextBox TxtTextHeight;

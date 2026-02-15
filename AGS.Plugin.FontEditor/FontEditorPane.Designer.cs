@@ -30,7 +30,7 @@
 		{
 			this.FlowCharacterPanel = new System.Windows.Forms.FlowLayoutPanel();
 			this.GroupBox = new System.Windows.Forms.GroupBox();
-			this.BtnExtend128 = new System.Windows.Forms.Button();
+            this.TxtGlyphRange = new System.Windows.Forms.TextBox();
             this.BtnPagePrev = new System.Windows.Forms.Button();
             this.BtnPageNext = new System.Windows.Forms.Button();
             this.TxtPageNumber = new System.Windows.Forms.TextBox();
@@ -71,7 +71,8 @@
 			this.BtnAllHeight = new System.Windows.Forms.Button();
 			this.BtnAllWidth = new System.Windows.Forms.Button();
 			this.TxtCharacter = new System.Windows.Forms.TextBox();
-			this.GrpAllCharacters = new System.Windows.Forms.GroupBox();
+            this.TxtGlyph = new System.Windows.Forms.TextBox();
+            this.GrpAllCharacters = new System.Windows.Forms.GroupBox();
 			this.GrpOneCharacter = new System.Windows.Forms.GroupBox();
 			this.ChkOneAllCharacters = new System.Windows.Forms.CheckBox();
 			this.GroupBox.SuspendLayout();
@@ -105,27 +106,27 @@
 			this.GroupBox.Anchor = ((System.Windows.Forms.AnchorStyles)(((System.Windows.Forms.AnchorStyles.Top | System.Windows.Forms.AnchorStyles.Bottom) 
             | System.Windows.Forms.AnchorStyles.Left)));
 			this.GroupBox.Controls.Add(this.FlowCharacterPanel);
-			this.GroupBox.Controls.Add(this.BtnExtend128);
-			this.GroupBox.Location = new System.Drawing.Point(6, 6);
+            this.GroupBox.Controls.Add(this.TxtGlyphRange);
+            this.GroupBox.Location = new System.Drawing.Point(6, 6);
 			this.GroupBox.Name = "GroupBox";
 			this.GroupBox.Size = new System.Drawing.Size(320, 467);
 			this.GroupBox.TabIndex = 5;
 			this.GroupBox.TabStop = false;
 			this.GroupBox.Text = "Selected font settings";
             // 
-            // BtnExtend128
+            // TxtGlyphRange
             // 
-            this.BtnExtend128.Location = new System.Drawing.Point(234, 0);
-			this.BtnExtend128.Name = "BtnExtend128";
-			this.BtnExtend128.Size = new System.Drawing.Size(80, 23);
-			this.BtnExtend128.TabIndex = 19;
-			this.BtnExtend128.Text = "Extend in 128 chars";
-			this.BtnExtend128.UseVisualStyleBackColor = true;
-			this.BtnExtend128.Click += new System.EventHandler(this.BtnExtend128_Click);
-			// 
-			// ZoomDrawingArea
-			// 
-			this.ZoomDrawingArea.LargeChange = 1;
+            this.TxtGlyphRange.Location = new System.Drawing.Point(264, 0);
+            this.TxtGlyphRange.Name = "TxtGlyphRange";
+            this.TxtGlyphRange.Size = new System.Drawing.Size(50, 20);
+            this.TxtGlyphRange.TabIndex = 19;
+            this.TxtGlyphRange.MaxLength = 5;
+            this.TxtGlyphRange.KeyPress += new System.Windows.Forms.KeyPressEventHandler(this.TxtGlyphRange_KeyPress);
+            this.TxtGlyphRange.KeyPress += new System.Windows.Forms.KeyPressEventHandler(this.TxtGlyphRange_KeyPress_Filter);
+            // 
+            // ZoomDrawingArea
+            // 
+            this.ZoomDrawingArea.LargeChange = 1;
 			this.ZoomDrawingArea.Location = new System.Drawing.Point(335, 138);
 			this.ZoomDrawingArea.Maximum = 40;
 			this.ZoomDrawingArea.Minimum = 2;
@@ -525,18 +526,29 @@
 			this.BtnAllWidth.Text = "All width to current";
 			this.BtnAllWidth.UseVisualStyleBackColor = true;
 			this.BtnAllWidth.Click += new System.EventHandler(this.BtnAllWidth_Click);
-			// 
-			// TxtCharacter
-			// 
-			this.TxtCharacter.Location = new System.Drawing.Point(460, 77);
+            // 
+            // TxtGlyph
+            // 
+            this.TxtGlyph.Location = new System.Drawing.Point(460, 54);
+            this.TxtGlyph.Name = "TxtGlyph";
+            this.TxtGlyph.Size = new System.Drawing.Size(53, 20);
+            this.TxtGlyph.TabIndex = 24;
+            this.TxtGlyph.MaxLength = 1;
+            this.TxtGlyph.KeyPress += new System.Windows.Forms.KeyPressEventHandler(this.TxtGlyph_KeyPress);
+            // 
+            // TxtCharacter
+            // 
+            this.TxtCharacter.Location = new System.Drawing.Point(460, 77);
 			this.TxtCharacter.Name = "TxtCharacter";
 			this.TxtCharacter.Size = new System.Drawing.Size(53, 20);
 			this.TxtCharacter.TabIndex = 24;
 			this.TxtCharacter.KeyPress += new System.Windows.Forms.KeyPressEventHandler(this.TxtCharacter_KeyPress);
-			// 
-			// GrpAllCharacters
-			// 
-			this.GrpAllCharacters.Controls.Add(this.BtnOutlineFont);
+            this.TxtCharacter.Leave += new System.EventHandler(this.TxtCharacter_Leave);
+            this.TxtGlyph.Leave += new System.EventHandler(this.TxtGlyph_Leave);
+            // 
+            // GrpAllCharacters
+            // 
+            this.GrpAllCharacters.Controls.Add(this.BtnOutlineFont);
 			this.GrpAllCharacters.Controls.Add(this.BtnAllHeight);
 			this.GrpAllCharacters.Controls.Add(this.BtnAllWidth);
 			this.GrpAllCharacters.Location = new System.Drawing.Point(838, 3);
@@ -584,7 +596,8 @@
 			this.Controls.Add(this.GrpOneCharacter);
 			this.Controls.Add(this.GrpAllCharacters);
 			this.Controls.Add(this.TxtCharacter);
-			this.Controls.Add(this.BtnNext);
+            this.Controls.Add(this.TxtGlyph);
+            this.Controls.Add(this.BtnNext);
 			this.Controls.Add(this.BtnPrevious);
             this.Controls.Add(this.LblCharacter);
 			this.Controls.Add(this.PictRenderText);
@@ -653,8 +666,8 @@
 		private System.Windows.Forms.Button BtnSwapVertically;
 		private System.Windows.Forms.Button BtnOutline;
 		private System.Windows.Forms.Button BtnOutlineFont;
-		private System.Windows.Forms.Button BtnExtend128;
-		private System.Windows.Forms.Button BtnPagePrev;
+        private System.Windows.Forms.TextBox TxtGlyphRange;
+        private System.Windows.Forms.Button BtnPagePrev;
 		private System.Windows.Forms.Button BtnPageNext;
 		private System.Windows.Forms.Button BtnRenderText;
 		private System.Windows.Forms.PictureBox PictRenderText;
@@ -668,7 +681,8 @@
 		private System.Windows.Forms.Button BtnAllHeight;
 		private System.Windows.Forms.Button BtnAllWidth;
 		private System.Windows.Forms.TextBox TxtCharacter;
-		private System.Windows.Forms.GroupBox GrpAllCharacters;
+        private System.Windows.Forms.TextBox TxtGlyph;
+        private System.Windows.Forms.GroupBox GrpAllCharacters;
 		private System.Windows.Forms.GroupBox GrpOneCharacter;
 		private System.Windows.Forms.CheckBox ChkOneAllCharacters;
 	}

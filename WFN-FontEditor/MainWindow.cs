@@ -50,7 +50,44 @@ namespace WFN_FontEditor
 				fep.Save();
 			}
 		}
-		private void BtnConvert_Click(object sender, EventArgs e)
+        private void BtnSaveAs_Click(object sender, EventArgs e)
+        {
+            if (TabControl.SelectedTab == null)
+                return;
+
+            FontEditorPane fep =
+                TabControl.SelectedTab.Controls[0] as FontEditorPane;
+
+            if (fep == null)
+                return;
+
+            using (SaveFileDialog dialog = new SaveFileDialog())
+            {
+                dialog.Title = "Save Font As";
+                dialog.Filter = "WFN Font Files (*.wfn)|*.wfn|All Files (*.*)|*.*";
+                dialog.DefaultExt = "wfn";
+                dialog.AddExtension = true;
+                dialog.OverwritePrompt = true;
+
+                if (dialog.ShowDialog() != DialogResult.OK)
+                    return;
+
+                try
+                {
+                    fep.SaveAs(dialog.FileName);
+                }
+                catch (Exception ex)
+                {
+                    MessageBox.Show(
+                        "Failed to save font:\n\n" + ex.Message,
+                        "Error",
+                        MessageBoxButtons.OK,
+                        MessageBoxIcon.Error);
+                }
+            }
+        }
+
+        private void BtnConvert_Click(object sender, EventArgs e)
 		{
 			FontPane pane = (FontPane)FontListBox.SelectedItem;
 

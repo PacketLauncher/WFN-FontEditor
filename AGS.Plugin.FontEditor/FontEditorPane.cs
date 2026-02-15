@@ -148,6 +148,8 @@ namespace AGS.Plugin.FontEditor
 
             XmlSettings.Read();
             InitializeComponent();
+            this.MouseDown += new System.Windows.Forms.MouseEventHandler(this.Form_MouseDown);
+
             LblZoom.Text = "x" + ZoomDrawingArea.Value;
 
             numWidth.Maximum = MaxWidth;
@@ -204,13 +206,9 @@ namespace AGS.Plugin.FontEditor
                 }
                 PageStart = 0;
                 RebuildPage();
-
+                UpdateGlyphTextbox();
+                TxtGlyphRange.Text = FontInfo.Character.Length.ToString();
                 SetGridFix();
-
-                if (FontInfo.Character.Length == 1535)
-                {
-                    BtnExtend128.Enabled = false;
-                }
             }
 
             FlowCharacterPanel.BackColor = XmlSettings.Color;
@@ -229,8 +227,6 @@ namespace AGS.Plugin.FontEditor
             {
                 GroupBox.Text = "Selected font settings";
             }
-            BtnExtend128.Text = "Extend in 128 chars";
-
         }
 
         private void RebuildPage()
@@ -298,61 +294,6 @@ namespace AGS.Plugin.FontEditor
             pict.Image = outbmp;
 
             FlowCharacterPanel.Controls.Add(pict);
-        }
-
-        private void BtnExtend128_Click(object sender, EventArgs e)
-        {
-            const int step = 128;
-            const int max = 65535; // safe maximum if file format uses UInt16 count
-
-            if (FontInfo == null || FontInfo.Character == null)
-                return;
-
-            int currentLength = FontInfo.Character.Length;
-
-            if (currentLength >= max)
-            {
-                BtnExtend128.Enabled = false;
-                return;
-            }
-
-            int newLength = Math.Min(currentLength + step, max);
-
-            // Resize character array
-            Array.Resize(ref FontInfo.Character, newLength);
-
-            // Initialize new glyphs
-            for (int i = currentLength; i < newLength; i++)
-            {
-                CCharInfo ch = new CCharInfo();
-                ch.Height = 9;
-                ch.HeightOriginal = 9;
-                ch.Width = 8;
-                ch.WidthOriginal = 8;
-                ch.Index = i;
-
-                ch.ByteLines = new byte[4];
-                ch.ByteLinesOriginal = new byte[4];
-
-                FontInfo.Character[i] = ch;
-            }
-
-            if (FontInfo.Character.Length >= max)
-                BtnExtend128.Enabled = false;
-
-            SetGridFix();
-
-            // 🔥 Important: rebuild the CURRENT page
-            int pageEnd = PageStart + PageSize - 1;
-
-            // Only rebuild if new glyphs affect current page
-            if (currentLength <= pageEnd)
-            {
-                RebuildPage();
-            }
-
-            UpdatePageButtons();
-            ShowCharacterCount();
         }
 
         private bool CorrectImage(Bitmap original, out Bitmap corrected)
@@ -483,6 +424,7 @@ namespace AGS.Plugin.FontEditor
                 characterinfo.UnscaledImage.Tag = t;
                 bitmap = (Bitmap)characterinfo.UnscaledImage;
                 Index = characterinfo.Index;
+                UpdateGlyphTextbox();
 
                 Bitmap scaledbitmap;
                 CFontUtils.ScaleBitmap(bitmap, out scaledbitmap, ZoomDrawingArea.Value);
@@ -568,6 +510,7 @@ namespace AGS.Plugin.FontEditor
             Bitmap bitmap = (Bitmap)characterinfo.UnscaledImage;
 
             Index = characterinfo.Index;
+            UpdateGlyphTextbox();
 
             LblCharacter.Text = Convert.ToString(Index) + "   " + "0x" + Convert.ToString(Index, 16) + "   " + Chr(Index); // decimal, hex, ascii
             TxtCharacter.Text = Convert.ToString(Index);
@@ -618,46 +561,62 @@ namespace AGS.Plugin.FontEditor
         {
             MouseEventArgs mouse = e as MouseEventArgs;
 
-
             Graphics graphics = ((PictureBox)sender).CreateGraphics();
             Int32 zoom = ZoomDrawingArea.Value;
             Bitmap Selected;
             Color col = Color.Gray;
 
-            if (null != (Selected = (Bitmap)(((CCharInfo)(CharacterPictureList[Index - PageStart].Tag)).UnscaledImage)))
+            int localIndex = Index - PageStart;
+
+            // Guard against invalid page/index combination
+            if (localIndex < 0 || localIndex >= CharacterPictureList.Count)
+            {
+                graphics.Dispose();
+                return;
+            }
+
+            CCharInfo currentChar =
+                (CCharInfo)CharacterPictureList[localIndex].Tag;
+
+            if (null != (Selected = (Bitmap)(currentChar.UnscaledImage)))
             {
                 if (null != mouse && mouse.Button != MouseButtons.None)
                 {
-                    if (((mouse.X / zoom) <= Selected.Width) || ((mouse.Y / zoom) <= Selected.Height))
+                    if (((mouse.X / zoom) <= Selected.Width) &&
+                        ((mouse.Y / zoom) <= Selected.Height))
                     {
                         SolidBrush brush = new SolidBrush(Color.Gray);
-                        BitmapData bmpData = Selected.LockBits(new Rectangle(0, 0, Selected.Width, Selected.Height), ImageLockMode.ReadWrite, Selected.PixelFormat);
+
+                        BitmapData bmpData = Selected.LockBits(
+                            new Rectangle(0, 0, Selected.Width, Selected.Height),
+                            ImageLockMode.ReadWrite,
+                            Selected.PixelFormat);
+
                         IntPtr ptr = bmpData.Scan0;
                         ptr = (IntPtr)((int)ptr + bmpData.Stride * (mouse.Y / zoom));
+
                         byte[] b = new byte[bmpData.Stride];
                         System.Runtime.InteropServices.Marshal.Copy(ptr, b, 0, bmpData.Stride);
                         Array.Reverse(b);
+
                         UInt32 line = BitConverter.ToUInt32(b, 0);
 
                         switch (mouse.Button)
                         {
                             case MouseButtons.Left:
-                                {
-                                    col = PanelLeftMouse.BackColor;
-                                }
+                                col = PanelLeftMouse.BackColor;
                                 break;
+
                             case MouseButtons.Right:
-                                {
-                                    col = PanelRightMouse.BackColor;
-                                }
+                                col = PanelRightMouse.BackColor;
                                 break;
+
                             case MouseButtons.Middle:
-                                {
-                                    col = ((line >> (mouse.X / zoom)) > 0) ? PanelLeftMouse.BackColor : PanelRightMouse.BackColor;
-                                }
+                                col = ((line >> (mouse.X / zoom)) > 0)
+                                    ? PanelLeftMouse.BackColor
+                                    : PanelRightMouse.BackColor;
                                 break;
                         }
-                        ;
 
                         if (Color.Black == col)
                         {
@@ -672,20 +631,27 @@ namespace AGS.Plugin.FontEditor
 
                         b = BitConverter.GetBytes(line);
                         Array.Reverse(b);
-                        ((CCharInfo)(CharacterPictureList[Index - PageStart].Tag)).UnscaledImage = Selected;
 
                         System.Runtime.InteropServices.Marshal.Copy(b, 0, ptr, bmpData.Stride);
                         Selected.UnlockBits(bmpData);
-                        graphics.FillRectangle(brush, new Rectangle((mouse.X / zoom) * zoom, (mouse.Y / zoom) * zoom, zoom, zoom));
+
+                        graphics.FillRectangle(
+                            brush,
+                            new Rectangle(
+                                (mouse.X / zoom) * zoom,
+                                (mouse.Y / zoom) * zoom,
+                                zoom,
+                                zoom));
+
                         brush.Dispose();
                     }
 
-                    CFontUtils.SaveByteLinesFromPicture((CCharInfo)(CharacterPictureList[Index - PageStart].Tag), Selected);
-                    ((CCharInfo)(CharacterPictureList[Index - PageStart].Tag)).UnscaledImage = Selected;
+                    CFontUtils.SaveByteLinesFromPicture(currentChar, Selected);
+                    currentChar.UnscaledImage = Selected;
 
                     Bitmap outbmp;
                     CFontUtils.ScaleBitmap(Selected, out outbmp, Scalefactor);
-                    CharacterPictureList[Index - PageStart].Image = outbmp;
+                    CharacterPictureList[localIndex].Image = outbmp;
                 }
 
                 if (ShowGrid)
@@ -694,7 +660,12 @@ namespace AGS.Plugin.FontEditor
                     {
                         for (int ycnt = 0; ycnt < Selected.Height; ycnt++)
                         {
-                            graphics.DrawRectangle(GridPen, xcnt * zoom, ycnt * zoom, zoom, zoom);
+                            graphics.DrawRectangle(
+                                GridPen,
+                                xcnt * zoom,
+                                ycnt * zoom,
+                                zoom,
+                                zoom);
                         }
                     }
                 }
@@ -702,6 +673,7 @@ namespace AGS.Plugin.FontEditor
 
             graphics.Dispose();
         }
+
 
         private void DrawingArea_Click(object sender, EventArgs e)
         {
@@ -732,12 +704,32 @@ namespace AGS.Plugin.FontEditor
             bInEdit = false;
             CheckChange();
 
-            CCharInfo characterinfo = (CCharInfo)(CharacterPictureList[Index - PageStart].Tag);
+            // If no glyphs exist, do nothing
+            if (FontInfo == null || FontInfo.Character == null)
+                return;
+
+            if (FontInfo.Character.Length == 0)
+                return;
+
+            int localIndex = Index - PageStart;
+
+            if (localIndex < 0 || localIndex >= CharacterPictureList.Count)
+                return;
+
+            CCharInfo characterinfo =
+                (CCharInfo)(CharacterPictureList[localIndex].Tag);
+
             characterinfo.UndoRedoListTidyUp();
             characterinfo.UndoRedoListAdd(characterinfo.ByteLines);
 
-            CharacterPictureList[characterinfo.Index - PageStart].ContextMenu.MenuItems[0].Enabled = characterinfo.UndoPossible;
-            CharacterPictureList[characterinfo.Index - PageStart].ContextMenu.MenuItems[1].Enabled = characterinfo.RedoPossible;
+            if (CharacterPictureList[localIndex].ContextMenu != null)
+            {
+                CharacterPictureList[localIndex]
+                    .ContextMenu.MenuItems[0].Enabled = characterinfo.UndoPossible;
+
+                CharacterPictureList[localIndex]
+                    .ContextMenu.MenuItems[1].Enabled = characterinfo.RedoPossible;
+            }
         }
         private void DrawingArea_Paint(object sender, PaintEventArgs e)
         {
@@ -813,6 +805,7 @@ namespace AGS.Plugin.FontEditor
             CFontUtils.SaveOneFont(FontInfo);
             CheckChange();
         }
+
         private void AdjustSize()
         {
             /* Now adjust the image size. */
@@ -901,7 +894,7 @@ namespace AGS.Plugin.FontEditor
         private void ChkGrid_CheckedChanged(object sender, EventArgs e)
         {
             ShowGrid = ChkGrid.Checked;
-            Character_Click(CharacterPictureList[Index], new MouseEventArgs(MouseButtons.Left, 1, 0, 0, 0));
+            Character_Click(CharacterPictureList[Index - PageStart], new MouseEventArgs(MouseButtons.Left, 1, 0, 0, 0));
             XmlSettings.Grid = ShowGrid;
             XmlSettings.Write();
         }
@@ -1542,8 +1535,10 @@ namespace AGS.Plugin.FontEditor
                 PageStart -= PageSize;
 
                 Index = PageStart;
+                UpdateGlyphTextbox();
 
                 RebuildPage();
+                UpdateGlyphTextbox();
 
                 int localIndex = Index - PageStart;
 
@@ -1564,8 +1559,8 @@ namespace AGS.Plugin.FontEditor
                 PageStart += PageSize;
 
                 Index = PageStart;
-
                 RebuildPage();
+                UpdateGlyphTextbox();
 
                 int localIndex = Index - PageStart;
 
@@ -1667,7 +1662,10 @@ namespace AGS.Plugin.FontEditor
         {
             if (e.KeyChar == '\r')
             {
-                UInt32? number = 0;
+                if (FontInfo == null || FontInfo.Character == null)
+                    return;
+
+                UInt32? number = null;
 
                 try
                 {
@@ -1676,28 +1674,49 @@ namespace AGS.Plugin.FontEditor
                 catch
                 {
                 }
-                finally
+
+                if (number != null)
                 {
-                    if (number != null)
+                    int newIndex = (int)number;
+
+                    // Clamp to valid range
+                    if (newIndex < 0)
+                        newIndex = 0;
+
+                    if (newIndex >= FontInfo.Character.Length)
+                        newIndex = FontInfo.Character.Length - 1;
+
+                    int newPageStart = (newIndex / PageSize) * PageSize;
+
+                    // Only rebuild page if page actually changes
+                    if (newPageStart != PageStart)
                     {
-                        if (number > 0 && number < FontInfo.Character.Length)
-                        {
-                            Index = (int)number;
-
-                            foreach (PictureBox item in CharacterPictureList)
-                            {
-                                CCharInfo characterinfo = (CCharInfo)(item.Tag);
-
-                                if (characterinfo.Index == Index)
-                                {
-                                    DisplayCurrentCharacter(characterinfo);
-                                }
-                            }
-                        }
+                        PageStart = newPageStart;
+                        RebuildPage();
+                        UpdateGlyphTextbox();
                     }
+
+                    Index = newIndex;
+                    UpdateGlyphTextbox();
+
+                    int localIndex = Index - PageStart;
+
+                    if (localIndex >= 0 && localIndex < CharacterPictureList.Count)
+                    {
+                        CCharInfo characterinfo =
+                            (CCharInfo)CharacterPictureList[localIndex].Tag;
+
+                        DisplayCurrentCharacter(characterinfo);
+                    }
+
+                    // Always update textbox to real index
+                    TxtCharacter.Text = Index.ToString();
                 }
+
+                e.Handled = true;
             }
         }
+
 
         private void ChkOneAllCharacters_CheckedChanged(object sender, EventArgs e)
         {
@@ -1757,6 +1776,7 @@ namespace AGS.Plugin.FontEditor
                     {
                         PageStart = (page - 1) * PageSize;
                         RebuildPage();
+                        UpdateGlyphTextbox();
                     }
                 }
 
@@ -1766,6 +1786,216 @@ namespace AGS.Plugin.FontEditor
 
                 e.SuppressKeyPress = true;
             }
+        }
+
+        private void TxtGlyphRange_KeyPress(object sender, KeyPressEventArgs e)
+        {
+            if (e.KeyChar != '\r')
+                return;
+
+            if (FontInfo == null || FontInfo.Character == null)
+                return;
+
+            const int max = 65536;
+
+            if (!int.TryParse(TxtGlyphRange.Text, out int newLength))
+            {
+                TxtGlyphRange.Text = FontInfo.Character.Length.ToString();
+                return;
+            }
+
+            // Enforce minimum of 1 glyph
+            if (newLength < 1)
+                newLength = 1;
+
+            // Clamp maximum
+            if (newLength > max)
+                newLength = max;
+
+            TxtGlyphRange.Text = newLength.ToString();
+
+            int currentLength = FontInfo.Character.Length;
+
+            if (newLength == currentLength)
+            {
+                TxtGlyphRange.Text = currentLength.ToString();
+                e.Handled = true;
+                return;
+            }
+
+            // 🔴 SHRINK
+            if (newLength < currentLength)
+            {
+                DialogResult result = MessageBox.Show(
+                    $"ALL GLYPHS ABOVE INDEX {newLength - 1} WILL BE PERMANENTLY REMOVED!\n\nThis action cannot be undone.\n\nContinue?",
+                    "WARNING",
+                    MessageBoxButtons.OKCancel,
+                    MessageBoxIcon.Warning);
+
+                if (result != DialogResult.OK)
+                {
+                    TxtGlyphRange.Text = currentLength.ToString();
+                    return;
+                }
+
+                Array.Resize(ref FontInfo.Character, newLength);
+
+                // Fix selection if needed
+                if (Index >= newLength)
+                    Index = newLength > 0 ? newLength - 1 : 0;
+            }
+            // 🟢 EXTEND
+            else
+            {
+                Array.Resize(ref FontInfo.Character, newLength);
+
+                for (int i = currentLength; i < newLength; i++)
+                {
+                    CCharInfo ch = new CCharInfo();
+                    ch.Height = 9;
+                    ch.HeightOriginal = 9;
+                    ch.Width = 8;
+                    ch.WidthOriginal = 8;
+                    ch.Index = i;
+
+                    ch.ByteLines = new byte[4];
+                    ch.ByteLinesOriginal = new byte[4];
+
+                    FontInfo.Character[i] = ch;
+                }
+            }
+
+            // Ensure correct page & selection
+            PageStart = (Index / PageSize) * PageSize;
+            RebuildPage();
+            UpdatePageButtons();
+            ShowCharacterCount();
+            UpdateGlyphTextbox();
+
+            TxtGlyphRange.Text = FontInfo.Character.Length.ToString();
+
+            e.Handled = true;
+        }
+
+        private void UpdateGlyphTextbox()
+        {
+            if (Index >= 0 && Index <= 0xFFFF)
+            {
+                TxtGlyph.Text = char.ConvertFromUtf32(Index);
+            }
+            else
+            {
+                TxtGlyph.Text = "";
+            }
+        }
+
+        private void TxtGlyph_KeyPress(object sender, KeyPressEventArgs e)
+        {
+            // If typing a normal character (not Enter), replace existing character
+            if (e.KeyChar != '\r' && !char.IsControl(e.KeyChar))
+            {
+                TxtGlyph.Text = e.KeyChar.ToString();
+                TxtGlyph.SelectionStart = 1; // keep cursor at end
+                e.Handled = true;            // stop default behavior
+                return;
+            }
+
+            // From here down is your original Enter logic
+            if (e.KeyChar != '\r')
+                return;
+
+            if (string.IsNullOrEmpty(TxtGlyph.Text))
+                return;
+
+            string input = TxtGlyph.Text;
+
+            int codePoint = char.ConvertToUtf32(input, 0);
+
+            if (codePoint < 0 || codePoint >= FontInfo.Character.Length)
+            {
+                // Out of range → ignore
+                UpdateGlyphTextbox();
+                return;
+            }
+
+            int newIndex = codePoint;
+            int newPageStart = (newIndex / PageSize) * PageSize;
+
+            // Only rebuild if page changes
+            if (newPageStart != PageStart)
+            {
+                PageStart = newPageStart;
+                RebuildPage();
+            }
+
+            Index = newIndex;
+
+            int localIndex = Index - PageStart;
+
+            if (localIndex >= 0 && localIndex < CharacterPictureList.Count)
+            {
+                CCharInfo characterinfo =
+                    (CCharInfo)CharacterPictureList[localIndex].Tag;
+
+                DisplayCurrentCharacter(characterinfo);
+            }
+
+            TxtCharacter.Text = Index.ToString();
+            UpdateGlyphTextbox();
+
+            e.Handled = true;
+        }
+
+        private void TxtCharacter_Leave(object sender, EventArgs e)
+        {
+            // Simulate pressing Enter
+            TxtCharacter_KeyPress(TxtCharacter, new KeyPressEventArgs('\r'));
+        }
+
+        private void TxtGlyph_Leave(object sender, EventArgs e)
+        {
+            // Simulate pressing Enter
+            TxtGlyph_KeyPress(TxtGlyph, new KeyPressEventArgs('\r'));
+        }
+
+        private void Form_MouseDown(object sender, MouseEventArgs e)
+        {
+            // Force focus away from textboxes
+            this.ActiveControl = null;
+        }
+
+        private void TxtGlyphRange_KeyPress_Filter(object sender, KeyPressEventArgs e)
+        {
+            // Allow digits
+            if (char.IsDigit(e.KeyChar))
+                return;
+
+            // Allow Backspace
+            if (e.KeyChar == (char)Keys.Back)
+                return;
+
+            // Allow Enter (for your existing logic)
+            if (e.KeyChar == '\r')
+                return;
+
+            // Block everything else
+            e.Handled = true;
+        }
+        public void SaveAs(string filePath)
+        {
+            if (FontInfo == null)
+                return;
+
+            using (System.IO.FileStream file =
+                new System.IO.FileStream(filePath, System.IO.FileMode.Create))
+            using (System.IO.BinaryWriter writer =
+                new System.IO.BinaryWriter(file))
+            {
+                FontInfo.Write(writer);
+            }
+
+            FontInfo.FontPath = filePath;
+            FontInfo.FontName = System.IO.Path.GetFileNameWithoutExtension(filePath);
         }
     }
 }
