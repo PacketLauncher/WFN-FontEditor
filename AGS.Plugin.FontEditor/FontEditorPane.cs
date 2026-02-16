@@ -2027,17 +2027,32 @@ namespace AGS.Plugin.FontEditor
             if (FontInfo == null)
                 return;
 
-            using (System.IO.FileStream file =
-                new System.IO.FileStream(filePath, System.IO.FileMode.Create))
-            using (System.IO.BinaryWriter writer =
-                new System.IO.BinaryWriter(file))
+            // 1️⃣ Perform size check BEFORE file creation
+            if (FontInfo is CWFNFontInfo wfn)
+            {
+                if (wfn.EstimateSize() > 65535)
+                {
+                    MessageBox.Show(
+                        "Font exceeds 64KB. The WFN format used by AGS does not support files larger than 65,535 bytes.",
+                        "Save Error",
+                        MessageBoxButtons.OK,
+                        MessageBoxIcon.Error);
+                    return; // 🔴 Exit BEFORE file creation
+                }
+            }
+
+            // 2️⃣ Proceed with saving only if no size issue
+            using (System.IO.FileStream file = new System.IO.FileStream(filePath, System.IO.FileMode.Create))
+            using (System.IO.BinaryWriter writer = new System.IO.BinaryWriter(file))
             {
                 FontInfo.Write(writer);
             }
 
+            // 3️⃣ Update the font path after successful save
             FontInfo.FontPath = filePath;
             FontInfo.FontName = System.IO.Path.GetFileNameWithoutExtension(filePath);
         }
+
         private long CalculateCurrentWFNSize()
         {
             if (FontInfo == null || FontInfo.Character == null)

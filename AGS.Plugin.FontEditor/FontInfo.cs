@@ -210,6 +210,30 @@ namespace AGS.Plugin.FontEditor
             throw new Exception("Font exceeds 64KB. The WFN format used by AGS does not support files larger than 65,535 bytes.\n\nEither reduce the range or make glyphs smaller; refer to the red text above the font preview.");
         }
 
+        public long EstimateSize()
+        {
+            if (Character == null)
+                return 0;
+
+            long estimatedSize = 17; // header
+
+            foreach (CCharInfo item in Character)
+            {
+                if (item == null)
+                    continue;
+
+                estimatedSize += 2; // width
+                estimatedSize += 2; // height
+
+                int bytesPerLine = (item.Width - 1) / 8 + 1;
+                estimatedSize += item.Height * bytesPerLine;
+            }
+
+            estimatedSize += Character.Length * 2; // offset table
+
+            return estimatedSize;
+        }
+
         public override void Write(System.IO.BinaryWriter binaryWriter)
         {
             long estimatedSize = 17; // header
@@ -497,26 +521,18 @@ namespace AGS.Plugin.FontEditor
             if (font == null)
                 return;
 
-            // 🔴 Validate BEFORE opening file
             if (font is CWFNFontInfo wfn)
             {
-                long estimatedSize = 17;
+                if (wfn.Character == null)
+                    throw new Exception("Cannot save: Character array is null.");
 
                 foreach (CCharInfo item in wfn.Character)
                 {
                     if (item == null)
                         throw new Exception("Cannot save: Character array contains null glyph entries.");
-
-                    estimatedSize += 2;
-                    estimatedSize += 2;
-
-                    int bytesPerLine = (item.Width - 1) / 8 + 1;
-                    estimatedSize += item.Height * bytesPerLine;
                 }
 
-                estimatedSize += wfn.Character.Length * 2;
-
-                if (estimatedSize > 65535)
+                if (wfn.EstimateSize() > 65535)
                 {
                     System.Windows.Forms.MessageBox.Show(
                         "Font exceeds 64KB. The WFN format used by AGS does not support files larger than 65,535 bytes.",
@@ -524,17 +540,17 @@ namespace AGS.Plugin.FontEditor
                         System.Windows.Forms.MessageBoxButtons.OK,
                         System.Windows.Forms.MessageBoxIcon.Error);
 
-                    return; // 🔴 EXIT BEFORE touching file
+                    return;
                 }
             }
 
-            // Only now open file
             using (var fs = System.IO.File.Open(font.FontPath, System.IO.FileMode.Create))
             using (var bw = new System.IO.BinaryWriter(fs))
             {
                 font.Write(bw);
             }
         }
+
 
 
         public static void ScaleBitmap(Bitmap bitmap, out Bitmap newbmp, Int32 scale)
