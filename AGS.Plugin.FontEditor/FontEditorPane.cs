@@ -231,12 +231,17 @@ namespace AGS.Plugin.FontEditor
                 long sizeBytes = CalculateCurrentWFNSize();
                 double sizeKB = sizeBytes / 1024.0;
 
-                GroupBox.Text = $"Selected font settings ({sizeKB:0.00} KB / 64 KB)";
+                GroupBox.Text = $"Font size {sizeKB:0.00} KB / 64 KB";
 
                 if (sizeBytes > 65535)
+                {
                     GroupBox.ForeColor = Color.Red;
-                else
+                    GroupBox.Text = $"Font size {sizeKB:0.00} KB / 64 KB (THIS WON'T SAVE!)";
+                }
+                else {
                     GroupBox.ForeColor = Color.Black;
+                    GroupBox.Text = $"Font size {sizeKB:0.00} KB / 64 KB";
+                }
             }
             else
             {
