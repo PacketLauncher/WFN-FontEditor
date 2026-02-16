@@ -190,8 +190,15 @@ namespace AGS.Plugin.FontEditor
                     binaryReader = new System.IO.BinaryReader(file);
                     FontInfo.Read(binaryReader);
                 }
-                catch
+                catch (Exception ex)
                 {
+                    System.Windows.Forms.MessageBox.Show(
+                        "Failed to load font:\n\n" + ex.Message,
+                        "Load Error",
+                        System.Windows.Forms.MessageBoxButtons.OK,
+                        System.Windows.Forms.MessageBoxIcon.Error);
+
+                    FontInfo.Character = new CCharInfo[0];
                 }
                 finally
                 {
@@ -221,16 +228,29 @@ namespace AGS.Plugin.FontEditor
         {
             if (FontInfo != null && FontInfo.Character != null)
             {
-                GroupBox.Text = $"Selected font settings (Font File {FontInfo.Character.Length} chars)";
+                long sizeBytes = CalculateCurrentWFNSize();
+                double sizeKB = sizeBytes / 1024.0;
+
+                GroupBox.Text = $"Selected font settings ({sizeKB:0.00} KB / 64 KB)";
+
+                if (sizeBytes > 65535)
+                    GroupBox.ForeColor = Color.Red;
+                else
+                    GroupBox.ForeColor = Color.Black;
             }
             else
             {
                 GroupBox.Text = "Selected font settings";
+                GroupBox.ForeColor = Color.Black;
             }
         }
 
+
         private void RebuildPage()
         {
+            if (FontInfo == null || FontInfo.Character == null)
+                return;
+
             FlowCharacterPanel.SuspendLayout();
 
             try
@@ -1292,6 +1312,12 @@ namespace AGS.Plugin.FontEditor
         {
             //CCharInfo character = ((CCharInfo)(((PictureBox)CharacterPictureList[Index - PageStart]).Tag));
 
+            if (character.ByteLines == null)
+            {
+                int bytesPerLine = (character.Width - 1) / 8 + 1;
+                character.ByteLines = new byte[character.Height * bytesPerLine];
+            }
+
             for (int bytelinecounter = 0; bytelinecounter < character.ByteLines.Length; bytelinecounter++)
             {
                 character.ByteLines[bytelinecounter] = 0x00;
@@ -1309,6 +1335,12 @@ namespace AGS.Plugin.FontEditor
         private void FillCharacter(CCharInfo character)
         {
             //CCharInfo character = ((CCharInfo)(((PictureBox)CharacterPictureList[Index - PageStart]).Tag));
+
+            if (character.ByteLines == null)
+            {
+                int bytesPerLine = (character.Width - 1) / 8 + 1;
+                character.ByteLines = new byte[character.Height * bytesPerLine];
+            }
 
             for (int bytelinecounter = 0; bytelinecounter < character.ByteLines.Length; bytelinecounter++)
             {
@@ -1858,8 +1890,8 @@ namespace AGS.Plugin.FontEditor
                     ch.WidthOriginal = 8;
                     ch.Index = i;
 
-                    ch.ByteLines = new byte[4];
-                    ch.ByteLinesOriginal = new byte[4];
+                    ch.ByteLines = null;
+                    ch.ByteLinesOriginal = null;
 
                     FontInfo.Character[i] = ch;
                 }
@@ -1945,7 +1977,11 @@ namespace AGS.Plugin.FontEditor
 
             e.Handled = true;
         }
-
+        private void TxtGlyphRange_Leave(object sender, EventArgs e)
+        {
+            // Simulate pressing Enter
+            TxtGlyphRange_KeyPress(TxtGlyphRange, new KeyPressEventArgs('\r'));
+        }
         private void TxtCharacter_Leave(object sender, EventArgs e)
         {
             // Simulate pressing Enter
@@ -1997,5 +2033,29 @@ namespace AGS.Plugin.FontEditor
             FontInfo.FontPath = filePath;
             FontInfo.FontName = System.IO.Path.GetFileNameWithoutExtension(filePath);
         }
+        private long CalculateCurrentWFNSize()
+        {
+            if (FontInfo == null || FontInfo.Character == null)
+                return 0;
+
+            long size = 17; // Header (15 bytes signature + 2 bytes offset pointer)
+
+            foreach (var ch in FontInfo.Character)
+            {
+                if (ch == null)
+                    continue;
+
+                size += 2; // Width
+                size += 2; // Height
+
+                int bytesPerLine = (ch.Width - 1) / 8 + 1;
+                size += ch.Height * bytesPerLine;
+            }
+
+            size += FontInfo.Character.Length * 2; // Offset table (UInt16 per glyph)
+
+            return size;
+        }
+
     }
 }

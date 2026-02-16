@@ -123,6 +123,7 @@
             this.TxtGlyphRange.MaxLength = 5;
             this.TxtGlyphRange.KeyPress += new System.Windows.Forms.KeyPressEventHandler(this.TxtGlyphRange_KeyPress);
             this.TxtGlyphRange.KeyPress += new System.Windows.Forms.KeyPressEventHandler(this.TxtGlyphRange_KeyPress_Filter);
+            this.TxtGlyphRange.Leave += new System.EventHandler(this.TxtGlyphRange_Leave);
             // 
             // ZoomDrawingArea
             // 
