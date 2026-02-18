@@ -35,9 +35,9 @@
 			this.BtnSaveAs = new System.Windows.Forms.Button();
 			this.FontListBox = new System.Windows.Forms.ListBox();
 			this.BtnConvert = new System.Windows.Forms.Button();
-			this.TxtTextHeight = new System.Windows.Forms.TextBox();
-			this.LblTextHeight = new System.Windows.Forms.Label();
-			this.SuspendLayout();
+            //this.TxtTextHeight = new System.Windows.Forms.TextBox(); // the TextHeight never seemed to work and hence removed
+            //this.LblTextHeight = new System.Windows.Forms.Label(); // the TextHeight never seemed to work and hence removed
+            this.SuspendLayout();
 			// 
 			// BtnOpen
 			// 
@@ -95,14 +95,15 @@
 			// 
 			this.BtnConvert.Location = new System.Drawing.Point(369, 12);
 			this.BtnConvert.Name = "BtnConvert";
-			this.BtnConvert.Size = new System.Drawing.Size(113, 23);
+			this.BtnConvert.Size = new System.Drawing.Size(120, 23);
 			this.BtnConvert.TabIndex = 1;
-			this.BtnConvert.Text = "Convert selected";
+			this.BtnConvert.Text = "SCI/WFN conversion";
 			this.BtnConvert.UseVisualStyleBackColor = true;
 			this.BtnConvert.Click += new System.EventHandler(this.BtnConvert_Click);
-			// 
-			// TxtTextHeight
-			// 
+            // 
+            // TxtTextHeight
+            // 
+            /* // the TextHeight never seemed to work and hence removed
 			this.TxtTextHeight.Location = new System.Drawing.Point(554, 14);
 			this.TxtTextHeight.MaxLength = 3;
 			this.TxtTextHeight.Name = "TxtTextHeight";
@@ -119,15 +120,17 @@
 			this.LblTextHeight.Size = new System.Drawing.Size(59, 13);
 			this.LblTextHeight.TabIndex = 5;
 			this.LblTextHeight.Text = "text height:";
-			// 
-			// MainWindow
-			// 
-			this.AutoScaleDimensions = new System.Drawing.SizeF(6F, 13F);
+			*/
+
+            // 
+            // MainWindow
+            // 
+            this.AutoScaleDimensions = new System.Drawing.SizeF(6F, 13F);
 			this.AutoScaleMode = System.Windows.Forms.AutoScaleMode.Font;
 			this.ClientSize = new System.Drawing.Size(981, 580);
-			this.Controls.Add(this.LblTextHeight);
-			this.Controls.Add(this.TxtTextHeight);
-			this.Controls.Add(this.FontListBox);
+            //this.Controls.Add(this.LblTextHeight); // the TextHeight never seemed to work and hence removed
+            //this.Controls.Add(this.TxtTextHeight); // the TextHeight never seemed to work and hence removed
+            this.Controls.Add(this.FontListBox);
 			this.Controls.Add(this.TabControl);
 			this.Controls.Add(this.BtnConvert);
 			this.Controls.Add(this.BtnSave);
@@ -149,8 +152,8 @@
 		private System.Windows.Forms.Button BtnSaveAs;
 		private System.Windows.Forms.ListBox FontListBox;
 		private System.Windows.Forms.Button BtnConvert;
-		private System.Windows.Forms.TextBox TxtTextHeight;
-		private System.Windows.Forms.Label LblTextHeight;
-	}
+        //private System.Windows.Forms.TextBox TxtTextHeight; // the TextHeight never seemed to work and hence removed
+        //private System.Windows.Forms.Label LblTextHeight; // the TextHeight never seemed to work and hence removed
+    }
 }
 

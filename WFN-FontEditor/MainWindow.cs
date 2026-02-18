@@ -91,14 +91,26 @@ namespace WFN_FontEditor
 		{
 			FontPane pane = (FontPane)FontListBox.SelectedItem;
 
+			if (pane == null) return;
+
 			string oldname = System.IO.Path.Combine(pane.Filepath, pane.Filename);
 
 			if ( pane.Filename.Contains("AGSFNT") )
 			{
-				/* to SCI */
-				CFontInfo oldfont = new CWFNFontInfo();
+                /* to SCI */
+                DialogResult result = MessageBox.Show(
+                        "You're about to convert this WFN font into a SCI font. This will create/overwrite a font.000 file at the same directory of the WFN font.\n\nContinue?", 
+                        "Warning",
+                        MessageBoxButtons.OKCancel,
+                        MessageBoxIcon.Warning);
+
+                if (result != DialogResult.OK)
+                {
+                    return;
+                }
+
+                CFontInfo oldfont = new CWFNFontInfo();
 				CFontInfo newfont = new CSCIFontInfo();
-				
 
 				int number = int.Parse(pane.Filename.Replace("AGSFNT", "").Replace(".WFN", ""));
 				string newname = System.IO.Path.Combine(pane.Filepath, "FONT." + number.ToString("000"));
@@ -108,7 +120,7 @@ namespace WFN_FontEditor
 				newfont.FontPath = pane.Filepath;
 				newfont.FontName = pane.Filename;
 				newfont.NumberOfCharacters = oldfont.NumberOfCharacters;
-				newfont.TextHeight = UInt16.Parse(TxtTextHeight.Text);
+				//newfont.TextHeight = UInt16.Parse(TxtTextHeight.Text); // the TextHeight never seemed to work and hence removed
 				newfont.Character = new CCharInfo[newfont.NumberOfCharacters];
 
 				for ( int cnt = 0; cnt < newfont.NumberOfCharacters; cnt++ )
@@ -119,10 +131,21 @@ namespace WFN_FontEditor
 				System.IO.FileStream fs = System.IO.File.Create(newname);
 				fs.Close();
 				newfont.Write(newname);
-			}
-			else if ( pane.Filename.Contains("FONT") )
+            }
+            else if ( pane.Filename.Contains("FONT") )
 			{
-				/* to WFN */
+                /* to WFN */
+                DialogResult result = MessageBox.Show(
+                        "You're about to convert this SCI font into a WFN font. This will create/overwrite an AGSFNT0.WFN file at the same directory of the SCI font.\n\nContinue?",
+                        "Warning",
+                        MessageBoxButtons.OKCancel,
+                        MessageBoxIcon.Warning);
+
+                if (result != DialogResult.OK)
+                {
+                    return;
+                }
+                
 				CFontInfo oldfont = new CSCIFontInfo();
 				CFontInfo newfont = new CWFNFontInfo();
 
@@ -194,6 +217,7 @@ namespace WFN_FontEditor
 			}
 		}
 
+        /*  // the TextHeight never seemed to work and hence removed
 		private void TxtTextHeight_TextChanged(object sender, EventArgs e)
 		{
 			UInt16 num=0;
@@ -201,6 +225,7 @@ namespace WFN_FontEditor
 
 			TxtTextHeight.Text = num.ToString();
 		}
+		*/
 
-	}
+    }
 }
