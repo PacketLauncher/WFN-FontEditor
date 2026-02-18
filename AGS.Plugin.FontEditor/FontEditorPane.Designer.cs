@@ -70,7 +70,8 @@
 			this.ChkGridFix = new System.Windows.Forms.CheckBox();
 			this.BtnAllHeight = new System.Windows.Forms.Button();
 			this.BtnAllWidth = new System.Windows.Forms.Button();
-			this.TxtCharacter = new System.Windows.Forms.TextBox();
+            this.BtnAllBlankClear = new System.Windows.Forms.Button();
+            this.TxtCharacter = new System.Windows.Forms.TextBox();
             this.TxtGlyph = new System.Windows.Forms.TextBox();
             this.GrpAllCharacters = new System.Windows.Forms.GroupBox();
 			this.GrpOneCharacter = new System.Windows.Forms.GroupBox();
@@ -528,6 +529,16 @@
 			this.BtnAllWidth.UseVisualStyleBackColor = true;
 			this.BtnAllWidth.Click += new System.EventHandler(this.BtnAllWidth_Click);
             // 
+            // BtnAllBlankClear
+            // 
+            this.BtnAllBlankClear.Location = new System.Drawing.Point(6, 105);
+            this.BtnAllBlankClear.Name = "BtnAllBlankClear";
+            this.BtnAllBlankClear.Size = new System.Drawing.Size(156, 23);
+            this.BtnAllBlankClear.TabIndex = 23;
+            this.BtnAllBlankClear.Text = "Make all blanks placeholdes";
+            this.BtnAllBlankClear.UseVisualStyleBackColor = true;
+            this.BtnAllBlankClear.Click += new System.EventHandler(this.BtnAllBlankClear_Click);
+            // 
             // TxtGlyph
             // 
             this.TxtGlyph.Location = new System.Drawing.Point(460, 54);
@@ -552,7 +563,8 @@
             this.GrpAllCharacters.Controls.Add(this.BtnOutlineFont);
 			this.GrpAllCharacters.Controls.Add(this.BtnAllHeight);
 			this.GrpAllCharacters.Controls.Add(this.BtnAllWidth);
-			this.GrpAllCharacters.Location = new System.Drawing.Point(838, 3);
+            this.GrpAllCharacters.Controls.Add(this.BtnAllBlankClear);
+            this.GrpAllCharacters.Location = new System.Drawing.Point(838, 3);
 			this.GrpAllCharacters.Name = "GrpAllCharacters";
 			this.GrpAllCharacters.Size = new System.Drawing.Size(169, 137);
 			this.GrpAllCharacters.TabIndex = 25;
@@ -681,7 +693,8 @@
         private System.Windows.Forms.CheckBox ChkGridFix;
 		private System.Windows.Forms.Button BtnAllHeight;
 		private System.Windows.Forms.Button BtnAllWidth;
-		private System.Windows.Forms.TextBox TxtCharacter;
+		private System.Windows.Forms.Button BtnAllBlankClear;
+        private System.Windows.Forms.TextBox TxtCharacter;
         private System.Windows.Forms.TextBox TxtGlyph;
         private System.Windows.Forms.GroupBox GrpAllCharacters;
 		private System.Windows.Forms.GroupBox GrpOneCharacter;

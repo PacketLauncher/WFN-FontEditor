@@ -14,6 +14,7 @@ namespace AGS.Plugin.FontEditor
     {
         Settings XmlSettings = new Settings();
         private List<PictureBox> CharacterPictureList = new List<PictureBox>();
+        private PictureBox _selectedPreview = null;
         private readonly ToolTip _toolTip = new ToolTip();
         private bool _bulkUpdate = false;
         private Int32 Index;
@@ -148,6 +149,12 @@ namespace AGS.Plugin.FontEditor
 
             XmlSettings.Read();
             InitializeComponent();
+
+            typeof(PictureBox)
+                .GetProperty("DoubleBuffered",
+                    System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)
+                ?.SetValue(DrawingArea, true, null);
+
             this.MouseDown += new System.Windows.Forms.MouseEventHandler(this.Form_MouseDown);
 
             LblZoom.Text = "x" + ZoomDrawingArea.Value;
@@ -306,18 +313,53 @@ namespace AGS.Plugin.FontEditor
             pict.ContextMenu.MenuItems.Add("Redo").Click += new EventHandler(MenuRedoClicked);
             pict.ContextMenu.MenuItems.Add("Copy").Click += new EventHandler(MenuCopyClicked);
             pict.ContextMenu.MenuItems.Add("Paste").Click += new EventHandler(MenuPasteClicked);
+            pict.ContextMenu.MenuItems.Add("-");
+            pict.ContextMenu.MenuItems.Add("Remove glyph data").Click += new EventHandler(MenuRemoveGlyphDataClicked);
             pict.ContextMenu.MenuItems[0].Enabled = false;
             pict.ContextMenu.MenuItems[1].Enabled = false;
 
-            CFontUtils.CreateBitmap(item, out bitmap);
+            // If glyph has no size yet, show placeholder
+            if (item.Width == 0 || item.Height == 0)
+            {
+                // Small placeholder preview size
+                int previewW = 8 * Scalefactor;
+                int previewH = 9 * Scalefactor;
 
-            item.UnscaledImage = bitmap;
-            item.UndoRedoListAdd(item.ByteLines);
+                Bitmap placeholder = new Bitmap(previewW, previewH);
+                using (Graphics g = Graphics.FromImage(placeholder))
+                {
+                    // Fill placeholder background to the same tone of panel
+                    g.Clear(XmlSettings.Color);
 
-            Bitmap outbmp;
-            CFontUtils.ScaleBitmap(bitmap, out outbmp, Scalefactor);
-            pict.Image = outbmp;
+                    // White stroke border
+                    using (Pen pen = new Pen(Color.White))
+                    {
+                        g.DrawRectangle(pen, 0, 0, previewW - 1, previewH - 1);
+                    }
+                }
 
+                pict.Image = placeholder;
+                pict.Width = previewW;
+                pict.Height = previewH;
+
+                item.UnscaledImage = null;
+            }
+            else
+            {
+                CFontUtils.CreateBitmap(item, out bitmap);
+
+                item.UnscaledImage = bitmap;
+                item.UndoRedoListAdd(item.ByteLines);
+
+                Bitmap outbmp;
+                CFontUtils.ScaleBitmap(bitmap, out outbmp, Scalefactor);
+                pict.Image = outbmp;
+
+                pict.Width = outbmp.Width;
+                pict.Height = outbmp.Height;
+            }
+            
+            pict.Paint += CharacterPreview_Paint;
             FlowCharacterPanel.Controls.Add(pict);
         }
 
@@ -356,7 +398,6 @@ namespace AGS.Plugin.FontEditor
                 return false;
             }
         }
-
 
         void MenuUndoClicked(object sender, EventArgs e)
         {
@@ -426,57 +467,154 @@ namespace AGS.Plugin.FontEditor
         void MenuPasteClicked(object sender, EventArgs e)
         {
             MenuItem menu = (MenuItem)sender;
+            if (menu == null)
+                return;
 
-            if (menu != null)
+            PictureBox picture = (PictureBox)menu.Parent.Tag;
+            if (picture == null)
+                return;
+
+            CCharInfo characterinfo = (CCharInfo)(picture.Tag);
+            if (characterinfo == null)
+                return;
+
+            // Grab clipboard image safely
+            Image clipImg = Clipboard.GetImage();
+            if (clipImg == null)
+                return;
+
+            Bitmap clipBmp = clipImg as Bitmap;
+            if (clipBmp == null)
+                clipBmp = new Bitmap(clipImg); // convert Image -> Bitmap
+
+            // Preserve old tag if existed (placeholders may have null UnscaledImage)
+            object oldTag = null;
+            if (characterinfo.UnscaledImage != null)
+                oldTag = characterinfo.UnscaledImage.Tag;
+
+            // Convert clipboard bitmap to 1bpp
+            Bitmap untested = Indexed.Image.CopyToBpp(clipBmp, 1);
+
+            // Fix upside-down / stride issues if needed
+            Bitmap corrected = null;
+            if (CorrectImage(untested, out corrected))
+                characterinfo.UnscaledImage = corrected;
+            else
+                characterinfo.UnscaledImage = untested;
+
+            // Restore tag if we had one
+            if (oldTag != null)
+                characterinfo.UnscaledImage.Tag = oldTag;
+
+            // Update glyph metrics based on pasted bitmap
+            characterinfo.Width = (UInt16)characterinfo.UnscaledImage.Width;
+            characterinfo.Height = (UInt16)characterinfo.UnscaledImage.Height;
+
+            // Save ByteLines from the pasted image (allocates ByteLines)
+            CFontUtils.SaveByteLinesFromPicture(characterinfo, (Bitmap)characterinfo.UnscaledImage);
+
+            // Update selection/UI
+            Index = characterinfo.Index;
+            UpdateGlyphTextbox();
+
+            // Update drawing area
+            Bitmap scaledbitmap;
+            CFontUtils.ScaleBitmap((Bitmap)characterinfo.UnscaledImage, out scaledbitmap, ZoomDrawingArea.Value);
+            if (scaledbitmap != null)
             {
-                PictureBox picture = (PictureBox)menu.Parent.Tag;
-                CCharInfo characterinfo = (CCharInfo)(picture.Tag);
-                object t = characterinfo.UnscaledImage.Tag;
-                Bitmap bitmap = (Bitmap)Clipboard.GetImage();
-
-                Bitmap untested = Indexed.Image.CopyToBpp(bitmap, 1);
-                Bitmap corrected = null;
-                if (CorrectImage(untested, out corrected))
-                {
-                    characterinfo.UnscaledImage = corrected;
-                }
-                else
-                {
-                    characterinfo.UnscaledImage = untested;
-                }
-
-                CFontUtils.SaveByteLinesFromPicture(characterinfo, (Bitmap)characterinfo.UnscaledImage);
-                characterinfo.UnscaledImage.Tag = t;
-                bitmap = (Bitmap)characterinfo.UnscaledImage;
-                Index = characterinfo.Index;
-                UpdateGlyphTextbox();
-
-                Bitmap scaledbitmap;
-                CFontUtils.ScaleBitmap(bitmap, out scaledbitmap, ZoomDrawingArea.Value);
                 DrawingArea.Size = scaledbitmap.Size;
                 DrawingArea.Image = scaledbitmap;
-                characterinfo.Width = (UInt16)characterinfo.UnscaledImage.Width;
-                characterinfo.Height = (UInt16)characterinfo.UnscaledImage.Height;
-
-                ClickedOnCharacter = true;
-                numWidth.Value = characterinfo.Width;
-                numHeight.Value = characterinfo.Height;
-                ClickedOnCharacter = false;
-
-                Bitmap outbmp;
-                CFontUtils.ScaleBitmap(bitmap, out outbmp, Scalefactor);
-                CharacterPictureList[characterinfo.Index - PageStart].Image = outbmp;
-                CharacterPictureList[characterinfo.Index - PageStart].Size = outbmp.Size;
-
-                characterinfo.UndoRedoListTidyUp();
-                characterinfo.UndoRedoListAdd(characterinfo.ByteLines);
-
-                CharacterPictureList[characterinfo.Index - PageStart].ContextMenu.MenuItems[0].Enabled = characterinfo.UndoPossible;
-                CharacterPictureList[characterinfo.Index - PageStart].ContextMenu.MenuItems[1].Enabled = characterinfo.RedoPossible;
-
-                CheckChange();
             }
+
+            ClickedOnCharacter = true;
+            numWidth.Value = characterinfo.Width;
+            numHeight.Value = characterinfo.Height;
+            ClickedOnCharacter = false;
+
+            // Update preview cell
+            int localIndex = characterinfo.Index - PageStart;
+            if (localIndex >= 0 && localIndex < CharacterPictureList.Count)
+            {
+                Bitmap outbmp;
+                CFontUtils.ScaleBitmap((Bitmap)characterinfo.UnscaledImage, out outbmp, Scalefactor);
+                CharacterPictureList[localIndex].Image = outbmp;
+                CharacterPictureList[localIndex].Size = outbmp.Size;
+                CharacterPictureList[localIndex].Invalidate();
+            }
+
+            // Undo/redo state
+            characterinfo.UndoRedoListTidyUp();
+            characterinfo.UndoRedoListAdd(characterinfo.ByteLines);
+
+            if (localIndex >= 0 && localIndex < CharacterPictureList.Count)
+            {
+                CharacterPictureList[localIndex].ContextMenu.MenuItems[0].Enabled = characterinfo.UndoPossible;
+                CharacterPictureList[localIndex].ContextMenu.MenuItems[1].Enabled = characterinfo.RedoPossible;
+            }
+
+            CheckChange();
         }
+
+
+        private void MenuRemoveGlyphDataClicked(object sender, EventArgs e)
+        {
+            MenuItem menu = sender as MenuItem;
+            if (menu == null)
+                return;
+
+            PictureBox pict = menu.Parent.Tag as PictureBox;
+            if (pict == null)
+                return;
+
+            CCharInfo character = pict.Tag as CCharInfo;
+            if (character == null)
+                return;
+
+            // 🔴 Convert glyph to placeholder (no size, no bitmap)
+            character.Width = 0;
+            character.Height = 0;
+            character.WidthOriginal = 0;
+            character.HeightOriginal = 0;
+            character.ByteLines = null;
+            character.ByteLinesOriginal = null;
+            character.UnscaledImage = null;
+
+            // 🔵 Recreate ONLY this preview box
+            int previewW = 8 * Scalefactor;
+            int previewH = 9 * Scalefactor;
+
+            Bitmap placeholder = new Bitmap(previewW, previewH);
+            using (Graphics g = Graphics.FromImage(placeholder))
+            {
+                g.Clear(XmlSettings.Color);
+
+                using (Pen pen = new Pen(Color.White))
+                {
+                    g.DrawRectangle(pen, 0, 0, previewW - 1, previewH - 1);
+                }
+            }
+
+            pict.Image = placeholder;
+            pict.Width = previewW;
+            pict.Height = previewH;
+            pict.Invalidate();
+
+            // ✅ If this glyph is currently selected → refresh drawing area
+            if (character.Index == Index)
+            {
+                DisplayCurrentCharacter(character);
+            }
+
+            // 🔵 Make this glyph the active selection
+            Index = character.Index;
+            UpdateGlyphTextbox();
+
+            // Visually select it (same behavior as left-click)
+            Character_Click(pict, new MouseEventArgs(MouseButtons.Left, 1, 0, 0, 0));
+
+            CheckChange();
+        }
+
 
         void PrevNext(EDirection direction)
         {
@@ -513,71 +651,79 @@ namespace AGS.Plugin.FontEditor
             CCharInfo characterinfo = (CCharInfo)(picture.Tag);
             ContextMenu menu = (ContextMenu)picture.ContextMenu;
 
+            // Remove highlight from previously selected preview
+            if (_selectedPreview != null)
+            {
+                _selectedPreview.BackColor = FlowCharacterPanel.BackColor;
+            }
+
+            // Highlight current preview
+            _selectedPreview = picture;
+            _selectedPreview.BackColor = Color.FromArgb(80, 120, 200); // subtle blue
+
             switch (mouse.Button)
             {
                 case MouseButtons.Left:
-                    {
-                        DisplayCurrentCharacter(characterinfo);
-                    }
+                    DisplayCurrentCharacter(characterinfo);
                     break;
+
                 case MouseButtons.Right:
-                    {
-                        menu.MenuItems[0].Enabled = characterinfo.UndoPossible;
-                        menu.MenuItems[1].Enabled = characterinfo.RedoPossible;
-                    }
+                    menu.MenuItems[0].Enabled = characterinfo.UndoPossible;
+                    menu.MenuItems[1].Enabled = characterinfo.RedoPossible;
                     break;
             }
-            ;
         }
+
 
         private void DisplayCurrentCharacter(CCharInfo characterinfo)
         {
-            Bitmap bitmap = (Bitmap)characterinfo.UnscaledImage;
+            if (characterinfo == null)
+                return;
 
             Index = characterinfo.Index;
             UpdateGlyphTextbox();
 
-            LblCharacter.Text = Convert.ToString(Index) + "   " + "0x" + Convert.ToString(Index, 16) + "   " + Chr(Index); // decimal, hex, ascii
+            LblCharacter.Text = Convert.ToString(Index) + "   " + "0x" + Convert.ToString(Index, 16) + "   " + Chr(Index);
             TxtCharacter.Text = Convert.ToString(Index);
 
+            // Keep your numeric controls in sync, but do NOT force placeholder to become a real glyph.
             ClickedOnCharacter = true;
-            numWidth.Value = characterinfo.Width;
-            numHeight.Value = characterinfo.Height;
-            ClickedOnCharacter = false;
 
-            Bitmap scaledbitmap;
-            CFontUtils.ScaleBitmap(bitmap, out scaledbitmap, ZoomDrawingArea.Value);
-            DrawingArea.Size = scaledbitmap.Size;
-
-            Graphics graphics = DrawingArea.CreateGraphics();
-            graphics.DrawImage(scaledbitmap, 0, 0);
-
-            if (ShowGrid)
+            // If placeholder, show default size in UI, but do not write it into the glyph.
+            if (characterinfo.Width == 0 || characterinfo.Height == 0)
             {
-                Int32 zoom = ZoomDrawingArea.Value;
-
-                for (int xcnt = 0; xcnt < characterinfo.Width; xcnt++)
-                {
-                    for (int ycnt = 0; ycnt < characterinfo.Height; ycnt++)
-                    {
-                        graphics.DrawRectangle(GridPen, xcnt * zoom, ycnt * zoom, zoom, zoom);
-                    }
-                }
+                numWidth.Value = PLACEHOLDER_W;
+                numHeight.Value = PLACEHOLDER_H;
+            }
+            else
+            {
+                numWidth.Value = characterinfo.Width;
+                numHeight.Value = characterinfo.Height;
             }
 
-            graphics.Dispose();
+            ClickedOnCharacter = false;
+
+            // ✅ This is the key: just refresh the drawing area view (temp bitmap if placeholder).
+            RefreshDrawingAreaDisplay(characterinfo);
+
+            // Optional: grid overlay happens in Paint/Mouse logic; don't call PaintOnDrawingArea here.
+
+            int localIndex = Index - PageStart;
+            if (localIndex >= 0 && localIndex < CharacterPictureList.Count)
+                SetSelectedPreview(CharacterPictureList[localIndex]);
 
             PaintOnDrawingArea(DrawingArea, null);
         }
 
         private void ZoomDrawingArea_ValueChanged(object sender, EventArgs e)
         {
-            CCharInfo characterinfo = (CCharInfo)(CharacterPictureList[Index - PageStart].Tag);
+            int localIndex = Index - PageStart;
+            if (localIndex < 0 || localIndex >= CharacterPictureList.Count)
+                return;
 
-            Bitmap scaledbitmap;
-            CFontUtils.ScaleBitmap((Bitmap)characterinfo.UnscaledImage, out scaledbitmap, ZoomDrawingArea.Value);
-            DrawingArea.Size = scaledbitmap.Size;
-            DrawingArea.Image = scaledbitmap;
+            CCharInfo characterinfo = (CCharInfo)CharacterPictureList[localIndex].Tag;
+
+            RefreshDrawingAreaDisplay(characterinfo);
 
             LblZoom.Text = "x" + ZoomDrawingArea.Value;
         }
@@ -588,7 +734,6 @@ namespace AGS.Plugin.FontEditor
 
             Graphics graphics = ((PictureBox)sender).CreateGraphics();
             Int32 zoom = ZoomDrawingArea.Value;
-            Bitmap Selected;
             Color col = Color.Gray;
 
             int localIndex = Index - PageStart;
@@ -600,105 +745,141 @@ namespace AGS.Plugin.FontEditor
                 return;
             }
 
-            CCharInfo currentChar =
+            CCharInfo character =
                 (CCharInfo)CharacterPictureList[localIndex].Tag;
 
-            if (null != (Selected = (Bitmap)(currentChar.UnscaledImage)))
+            // 🔴 INITIALIZE EMPTY GLYPH IF NEEDED
+            // Do NOT initialize placeholder glyphs unless the user is actually drawing
+            Bitmap Selected = character.UnscaledImage as Bitmap;
+
+            bool isUserDrawing = (mouse != null && mouse.Button != MouseButtons.None);
+
+            if (isUserDrawing)
             {
-                if (null != mouse && mouse.Button != MouseButtons.None)
+                // If placeholder, materialize it NOW (user started drawing)
+                if (character.Width == 0 || character.Height == 0 || Selected == null)
                 {
-                    if (((mouse.X / zoom) <= Selected.Width) &&
-                        ((mouse.Y / zoom) <= Selected.Height))
+                    character.Width = 8;
+                    character.Height = 9;
+                    character.WidthOriginal = 8;
+                    character.HeightOriginal = 9;
+
+                    int bytesPerLine = (character.Width - 1) / 8 + 1;
+                    character.ByteLines = new byte[character.Height * bytesPerLine];
+
+                    Bitmap newBmp;
+                    CFontUtils.CreateBitmap(character, out newBmp);
+                    character.UnscaledImage = newBmp;
+                    Selected = newBmp;
+
+                    // Update preview image immediately
+                    Bitmap scaled;
+                    CFontUtils.ScaleBitmap(newBmp, out scaled, Scalefactor);
+                    CharacterPictureList[localIndex].Image = scaled;
+                    CharacterPictureList[localIndex].Invalidate();
+                }
+            }
+
+            // If still placeholder and not drawing: just exit (keep placeholder!)
+            if (Selected == null)
+            {
+                graphics.Dispose();
+                return;
+            }
+
+            if (mouse != null && mouse.Button != MouseButtons.None)
+            {
+                if (((mouse.X / zoom) < Selected.Width) &&
+                    ((mouse.Y / zoom) < Selected.Height))
+                {
+                    SolidBrush brush = new SolidBrush(Color.Gray);
+
+                    BitmapData bmpData = Selected.LockBits(
+                        new Rectangle(0, 0, Selected.Width, Selected.Height),
+                        ImageLockMode.ReadWrite,
+                        Selected.PixelFormat);
+
+                    IntPtr ptr = bmpData.Scan0;
+                    ptr = (IntPtr)((int)ptr + bmpData.Stride * (mouse.Y / zoom));
+
+                    byte[] b = new byte[bmpData.Stride];
+                    System.Runtime.InteropServices.Marshal.Copy(ptr, b, 0, bmpData.Stride);
+                    Array.Reverse(b);
+
+                    UInt32 line = BitConverter.ToUInt32(b, 0);
+
+                    switch (mouse.Button)
                     {
-                        SolidBrush brush = new SolidBrush(Color.Gray);
+                        case MouseButtons.Left:
+                            col = PanelLeftMouse.BackColor;
+                            break;
 
-                        BitmapData bmpData = Selected.LockBits(
-                            new Rectangle(0, 0, Selected.Width, Selected.Height),
-                            ImageLockMode.ReadWrite,
-                            Selected.PixelFormat);
+                        case MouseButtons.Right:
+                            col = PanelRightMouse.BackColor;
+                            break;
 
-                        IntPtr ptr = bmpData.Scan0;
-                        ptr = (IntPtr)((int)ptr + bmpData.Stride * (mouse.Y / zoom));
-
-                        byte[] b = new byte[bmpData.Stride];
-                        System.Runtime.InteropServices.Marshal.Copy(ptr, b, 0, bmpData.Stride);
-                        Array.Reverse(b);
-
-                        UInt32 line = BitConverter.ToUInt32(b, 0);
-
-                        switch (mouse.Button)
-                        {
-                            case MouseButtons.Left:
-                                col = PanelLeftMouse.BackColor;
-                                break;
-
-                            case MouseButtons.Right:
-                                col = PanelRightMouse.BackColor;
-                                break;
-
-                            case MouseButtons.Middle:
-                                col = ((line >> (mouse.X / zoom)) > 0)
-                                    ? PanelLeftMouse.BackColor
-                                    : PanelRightMouse.BackColor;
-                                break;
-                        }
-
-                        if (Color.Black == col)
-                        {
-                            brush = new SolidBrush(Color.Black);
-                            line &= ~(UInt32)(0x80000000 >> (mouse.X / zoom));
-                        }
-                        else
-                        {
-                            brush = new SolidBrush(Color.White);
-                            line |= (UInt32)(0x80000000 >> (mouse.X / zoom));
-                        }
-
-                        b = BitConverter.GetBytes(line);
-                        Array.Reverse(b);
-
-                        System.Runtime.InteropServices.Marshal.Copy(b, 0, ptr, bmpData.Stride);
-                        Selected.UnlockBits(bmpData);
-
-                        graphics.FillRectangle(
-                            brush,
-                            new Rectangle(
-                                (mouse.X / zoom) * zoom,
-                                (mouse.Y / zoom) * zoom,
-                                zoom,
-                                zoom));
-
-                        brush.Dispose();
+                        case MouseButtons.Middle:
+                            col = ((line >> (mouse.X / zoom)) > 0)
+                                ? PanelLeftMouse.BackColor
+                                : PanelRightMouse.BackColor;
+                            break;
                     }
 
-                    CFontUtils.SaveByteLinesFromPicture(currentChar, Selected);
-                    currentChar.UnscaledImage = Selected;
+                    if (Color.Black == col)
+                    {
+                        brush = new SolidBrush(Color.Black);
+                        line &= ~(UInt32)(0x80000000 >> (mouse.X / zoom));
+                    }
+                    else
+                    {
+                        brush = new SolidBrush(Color.White);
+                        line |= (UInt32)(0x80000000 >> (mouse.X / zoom));
+                    }
+
+                    b = BitConverter.GetBytes(line);
+                    Array.Reverse(b);
+
+                    System.Runtime.InteropServices.Marshal.Copy(b, 0, ptr, bmpData.Stride);
+                    Selected.UnlockBits(bmpData);
+
+                    graphics.FillRectangle(
+                        brush,
+                        new Rectangle(
+                            (mouse.X / zoom) * zoom,
+                            (mouse.Y / zoom) * zoom,
+                            zoom,
+                            zoom));
+
+                    brush.Dispose();
+
+                    CFontUtils.SaveByteLinesFromPicture(character, Selected);
+                    character.UnscaledImage = Selected;
 
                     Bitmap outbmp;
                     CFontUtils.ScaleBitmap(Selected, out outbmp, Scalefactor);
                     CharacterPictureList[localIndex].Image = outbmp;
+                    CharacterPictureList[localIndex].Invalidate();
                 }
+            }
 
-                if (ShowGrid)
+            if (ShowGrid)
+            {
+                for (int xcnt = 0; xcnt < Selected.Width; xcnt++)
                 {
-                    for (int xcnt = 0; xcnt < Selected.Width; xcnt++)
+                    for (int ycnt = 0; ycnt < Selected.Height; ycnt++)
                     {
-                        for (int ycnt = 0; ycnt < Selected.Height; ycnt++)
-                        {
-                            graphics.DrawRectangle(
-                                GridPen,
-                                xcnt * zoom,
-                                ycnt * zoom,
-                                zoom,
-                                zoom);
-                        }
+                        graphics.DrawRectangle(
+                            GridPen,
+                            xcnt * zoom,
+                            ycnt * zoom,
+                            zoom,
+                            zoom);
                     }
                 }
             }
 
             graphics.Dispose();
         }
-
 
         private void DrawingArea_Click(object sender, EventArgs e)
         {
@@ -758,37 +939,37 @@ namespace AGS.Plugin.FontEditor
         }
         private void DrawingArea_Paint(object sender, PaintEventArgs e)
         {
-            Bitmap Selected;
-
             int localIndex = Index - PageStart;
+            if (localIndex < 0 || localIndex >= CharacterPictureList.Count)
+                return;
 
-            if (localIndex >= 0 && localIndex < CharacterPictureList.Count)
+            CCharInfo character = (CCharInfo)CharacterPictureList[localIndex].Tag;
+
+            Bitmap src = GetDrawingAreaBitmapForGlyph(character);
+
+            Bitmap scaled;
+            CFontUtils.ScaleBitmap(src, out scaled, ZoomDrawingArea.Value);
+            if (scaled == null)
+                return;
+
+            e.Graphics.DrawImage(scaled, 0, 0);
+
+            if (ShowGrid && character != null)
             {
-                CCharInfo character = (CCharInfo)CharacterPictureList[localIndex].Tag;
+                // For placeholders, grid should match the placeholder size (8x9),
+                // not 0x0.
+                int w = (character.Width > 0) ? character.Width : PLACEHOLDER_W;
+                int h = (character.Height > 0) ? character.Height : PLACEHOLDER_H;
 
-                if (null != (Selected = (Bitmap)character.UnscaledImage))
+                Int32 zoom = ZoomDrawingArea.Value;
+                for (int x = 0; x < w; x++)
                 {
-                    Bitmap scaledbitmap;
-                    CFontUtils.ScaleBitmap(Selected, out scaledbitmap, ZoomDrawingArea.Value);
-
-                    Graphics graphics = e.Graphics;
-                    graphics.DrawImage(scaledbitmap, 0, 0);
-
-                    if (ShowGrid)
+                    for (int y = 0; y < h; y++)
                     {
-                        Int32 zoom = ZoomDrawingArea.Value;
-
-                        for (int xcnt = 0; xcnt < character.Width; xcnt++)
-                        {
-                            for (int ycnt = 0; ycnt < character.Height; ycnt++)
-                            {
-                                graphics.DrawRectangle(GridPen, xcnt * zoom, ycnt * zoom, zoom, zoom);
-                            }
-                        }
+                        e.Graphics.DrawRectangle(GridPen, x * zoom, y * zoom, zoom, zoom);
                     }
                 }
             }
-
         }
 
         private void SetGridFix()
@@ -987,6 +1168,7 @@ namespace AGS.Plugin.FontEditor
                         if (cd.ShowDialog() == DialogResult.OK)
                         {
                             FlowCharacterPanel.BackColor = cd.Color;
+                            RefreshPlaceholders();
                         }
 
                         XmlSettings.Color = cd.Color;
@@ -1010,6 +1192,14 @@ namespace AGS.Plugin.FontEditor
         #region Character functions
         private void ShiftUpCharacter(CCharInfo character)
         {
+            // Ignore placeholder glyphs
+            if (character.Width == 0 ||
+                character.Height == 0 ||
+                character.UnscaledImage == null)
+            {
+                return;
+            }
+
             //CCharInfo character = ((CCharInfo)(((PictureBox)CharacterPictureList[Index - PageStart]).Tag));
             Bitmap Selected;
 
@@ -1043,6 +1233,14 @@ namespace AGS.Plugin.FontEditor
         }
         private void ShiftDownCharacter(CCharInfo character)
         {
+            // Ignore placeholder glyphs
+            if (character.Width == 0 ||
+                character.Height == 0 ||
+                character.UnscaledImage == null)
+            {
+                return;
+            }
+
             //CCharInfo character = ((CCharInfo)(((PictureBox)CharacterPictureList[Index - PageStart]).Tag));
             Bitmap Selected;
 
@@ -1076,6 +1274,14 @@ namespace AGS.Plugin.FontEditor
         }
         private void ShiftLeftCharacter(CCharInfo character)
         {
+            // Ignore placeholder glyphs
+            if (character.Width == 0 ||
+                character.Height == 0 ||
+                character.UnscaledImage == null)
+            {
+                return;
+            }
+
             //CCharInfo character = ((CCharInfo)(((PictureBox)CharacterPictureList[Index - PageStart]).Tag));
             Bitmap Selected;
 
@@ -1124,6 +1330,14 @@ namespace AGS.Plugin.FontEditor
         }
         private void ShiftRightCharacter(CCharInfo character)
         {
+            // Ignore placeholder glyphs
+            if (character.Width == 0 ||
+                character.Height == 0 ||
+                character.UnscaledImage == null)
+            {
+                return;
+            }
+
             //CCharInfo character = ((CCharInfo)(((PictureBox)CharacterPictureList[Index - PageStart]).Tag));
             Bitmap Selected;
 
@@ -1172,6 +1386,9 @@ namespace AGS.Plugin.FontEditor
         }
         private void InvertCharacter(CCharInfo character)
         {
+            if (character.UnscaledImage == null)
+                return;
+
             //CCharInfo character = ((CCharInfo)(((PictureBox)CharacterPictureList[Index - PageStart]).Tag));
             Bitmap Selected;
 
@@ -1220,6 +1437,9 @@ namespace AGS.Plugin.FontEditor
         }
         private void SwapHorizontallyCharacter(CCharInfo character)
         {
+            if (character.UnscaledImage == null)
+                return;
+
             //CCharInfo character = ((CCharInfo)(((PictureBox)CharacterPictureList[Index - PageStart]).Tag));
             Bitmap Selected;
 
@@ -1262,6 +1482,9 @@ namespace AGS.Plugin.FontEditor
         }
         private void SwapVerticallyCharacter(CCharInfo character)
         {
+            if (character.UnscaledImage == null)
+                return;
+
             //CCharInfo character = ((CCharInfo)(((PictureBox)CharacterPictureList[Index - PageStart]).Tag));
             Bitmap Selected;
 
@@ -1315,41 +1538,63 @@ namespace AGS.Plugin.FontEditor
         }
         private void ClearCharacter(CCharInfo character)
         {
-            //CCharInfo character = ((CCharInfo)(((PictureBox)CharacterPictureList[Index - PageStart]).Tag));
+            // 🟢 If placeholder, materialize it first
+            if (character.Width == 0 || character.Height == 0 || character.UnscaledImage == null)
+            {
+                character.Width = 8;
+                character.Height = 9;
+                character.WidthOriginal = 8;
+                character.HeightOriginal = 9;
 
+                int bytesPerLine = (character.Width - 1) / 8 + 1;
+                character.ByteLines = new byte[character.Height * bytesPerLine];
+            }
+
+            // Ensure ByteLines exists
             if (character.ByteLines == null)
             {
                 int bytesPerLine = (character.Width - 1) / 8 + 1;
                 character.ByteLines = new byte[character.Height * bytesPerLine];
             }
 
-            for (int bytelinecounter = 0; bytelinecounter < character.ByteLines.Length; bytelinecounter++)
-            {
-                character.ByteLines[bytelinecounter] = 0x00;
-            }
+            // Clear bitmap data (all black)
+            for (int i = 0; i < character.ByteLines.Length; i++)
+                character.ByteLines[i] = 0x00;
 
             character.UndoRedoListTidyUp();
             character.UndoRedoListAdd(character.ByteLines);
-
-            CharacterPictureList[character.Index - PageStart].ContextMenu.MenuItems[0].Enabled = character.UndoPossible;
-            CharacterPictureList[character.Index - PageStart].ContextMenu.MenuItems[1].Enabled = character.RedoPossible;
 
             CreateAndShow(character, SizeMode.ChangeNothing);
             CheckChange();
         }
         private void FillCharacter(CCharInfo character)
         {
-            //CCharInfo character = ((CCharInfo)(((PictureBox)CharacterPictureList[Index - PageStart]).Tag));
+            // If placeholder → materialize first
+            if (character.Width == 0 || character.Height == 0 || character.UnscaledImage == null)
+            {
+                character.Width = 8;
+                character.Height = 9;
+                character.WidthOriginal = 8;
+                character.HeightOriginal = 9;
 
+                int bytesPerLine = (character.Width - 1) / 8 + 1;
+                character.ByteLines = new byte[character.Height * bytesPerLine];
+
+                Bitmap newBmp;
+                CFontUtils.CreateBitmap(character, out newBmp);
+                character.UnscaledImage = newBmp;
+            }
+
+            // Now safe to fill
             if (character.ByteLines == null)
             {
                 int bytesPerLine = (character.Width - 1) / 8 + 1;
                 character.ByteLines = new byte[character.Height * bytesPerLine];
             }
 
-            for (int bytelinecounter = 0; bytelinecounter < character.ByteLines.Length; bytelinecounter++)
+            for (int i = 0; i < character.ByteLines.Length; i++)
             {
-                character.ByteLines[bytelinecounter] = 0xFF;
+                character.ByteLines[i] = 0xFF;
             }
 
             character.UndoRedoListTidyUp();
@@ -1361,8 +1606,12 @@ namespace AGS.Plugin.FontEditor
             CreateAndShow(character, SizeMode.ChangeNothing);
             CheckChange();
         }
+
         private void OutlineCharacter(CCharInfo character)
         {
+            if (character.UnscaledImage == null)
+                return;
+
             //CCharInfo character = ((CCharInfo)(((PictureBox)CharacterPictureList[Index - PageStart]).Tag));
             Bitmap Selected;
 
@@ -1634,6 +1883,10 @@ namespace AGS.Plugin.FontEditor
                     if (!ClickedOnCharacter)
                     {
                         CCharInfo character = (CCharInfo)item.Tag;
+
+                        if (character.UnscaledImage == null)
+                            continue;
+
                         CreateAndShow(character, SizeMode.ChangeHeight);
                     }
 
@@ -1660,6 +1913,10 @@ namespace AGS.Plugin.FontEditor
                     if (!ClickedOnCharacter)
                     {
                         CCharInfo character = (CCharInfo)item.Tag;
+
+                        if (character.UnscaledImage == null)
+                            continue;
+
                         CreateAndShow(character, SizeMode.ChangeWidth);
                     }
 
@@ -1674,6 +1931,88 @@ namespace AGS.Plugin.FontEditor
 
             CheckChange();
         }
+        private async void BtnAllBlankClear_Click(object sender, EventArgs e)
+        {
+            if (FontInfo == null || FontInfo.Character == null)
+                return;
+
+            FlowCharacterPanel.SuspendLayout();
+
+            try
+            {
+                foreach (PictureBox pict in CharacterPictureList)
+                {
+                    CCharInfo character = pict.Tag as CCharInfo;
+
+                    if (character == null)
+                        continue;
+
+                    // Skip real placeholders
+                    if (character.ByteLines == null || character.ByteLines.Length == 0)
+                        continue;
+
+                    // Check if bitmap is completely black
+                    bool isAllBlack = true;
+
+                    foreach (byte b in character.ByteLines)
+                    {
+                        if (b != 0x00)
+                        {
+                            isAllBlack = false;
+                            break;
+                        }
+                    }
+
+                    if (!isAllBlack)
+                        continue;
+
+                    // 🔴 Convert to placeholder
+                    character.Width = 0;
+                    character.Height = 0;
+                    character.WidthOriginal = 0;
+                    character.HeightOriginal = 0;
+
+                    character.ByteLines = null;
+                    character.ByteLinesOriginal = null;
+                    character.UnscaledImage = null;
+
+                    // If this glyph is currently selected, re-display it
+                    if (character.Index == Index)
+                    {
+                        DisplayCurrentCharacter(character);
+                    }
+
+                    // Replace preview image with placeholder
+                    int previewW = 8 * Scalefactor;
+                    int previewH = 9 * Scalefactor;
+
+                    Bitmap placeholder = new Bitmap(previewW, previewH);
+                    using (Graphics g = Graphics.FromImage(placeholder))
+                    {
+                        g.Clear(XmlSettings.Color);
+
+                        using (Pen pen = new Pen(Color.White))
+                        {
+                            g.DrawRectangle(pen, 0, 0, previewW - 1, previewH - 1);
+                        }
+                    }
+
+                    pict.Image = placeholder;
+                    pict.Width = previewW;
+                    pict.Height = previewH;
+
+                    await Task.Yield();
+                }
+            }
+            finally
+            {
+                FlowCharacterPanel.ResumeLayout();
+            }
+
+            CheckChange();
+
+        }
+
 
         private UInt32? ParseXmlNumber(string s)
         {
@@ -1835,11 +2174,16 @@ namespace AGS.Plugin.FontEditor
 
             const int max = 65536;
 
-            if (!int.TryParse(TxtGlyphRange.Text, out int newLength))
+            if (!int.TryParse(TxtGlyphRange.Text, out int requestedLength))
             {
                 TxtGlyphRange.Text = FontInfo.Character.Length.ToString();
                 return;
             }
+
+            // ✅ Remember what user asked for BEFORE clamping
+            bool userAskedForBelowOne = (requestedLength < 1);
+
+            int newLength = requestedLength;
 
             // Enforce minimum of 1 glyph
             if (newLength < 1)
@@ -1853,9 +2197,36 @@ namespace AGS.Plugin.FontEditor
 
             int currentLength = FontInfo.Character.Length;
 
+            // ✅ If user typed 0 (or negative) and we already are at length 1,
+            // we STILL need to reset glyph 0 into a placeholder.
             if (newLength == currentLength)
             {
-                TxtGlyphRange.Text = currentLength.ToString();
+                if (userAskedForBelowOne && newLength == 1 && currentLength >= 1)
+                {
+                    DialogResult result = MessageBox.Show(
+                    $"ALL GLYPHS ABOVE INDEX {newLength - 1} WILL BE PERMANENTLY REMOVED!\n\nThis action cannot be undone.\n\nContinue?",
+                    "WARNING",
+                    MessageBoxButtons.OKCancel,
+                    MessageBoxIcon.Warning);
+
+                    if (result != DialogResult.OK)
+                    {
+                        TxtGlyphRange.Text = currentLength.ToString();
+                        return;
+                    }
+
+                    MakeGlyphPlaceholder(FontInfo.Character[0]);
+
+                    // keep selection sane
+                    Index = 0;
+                    PageStart = 0;
+
+                    RebuildPage();
+                    UpdatePageButtons();
+                    ShowCharacterCount();
+                    UpdateGlyphTextbox();
+                }
+
                 e.Handled = true;
                 return;
             }
@@ -1877,9 +2248,12 @@ namespace AGS.Plugin.FontEditor
 
                 Array.Resize(ref FontInfo.Character, newLength);
 
-                // Fix selection if needed
+                // If we shrunk to 1 (because user asked 0), force glyph 0 placeholder
+                if (newLength == 1 && userAskedForBelowOne)
+                    MakeGlyphPlaceholder(FontInfo.Character[0]);
+
                 if (Index >= newLength)
-                    Index = newLength > 0 ? newLength - 1 : 0;
+                    Index = newLength - 1;
             }
             // 🟢 EXTEND
             else
@@ -1889,20 +2263,18 @@ namespace AGS.Plugin.FontEditor
                 for (int i = currentLength; i < newLength; i++)
                 {
                     CCharInfo ch = new CCharInfo();
-                    ch.Height = 9;
-                    ch.HeightOriginal = 9;
-                    ch.Width = 8;
-                    ch.WidthOriginal = 8;
+                    ch.Height = 0;
+                    ch.HeightOriginal = 0;
+                    ch.Width = 0;
+                    ch.WidthOriginal = 0;
                     ch.Index = i;
-
                     ch.ByteLines = null;
                     ch.ByteLinesOriginal = null;
-
+                    ch.UnscaledImage = null;
                     FontInfo.Character[i] = ch;
                 }
             }
 
-            // Ensure correct page & selection
             PageStart = (Index / PageSize) * PageSize;
             RebuildPage();
             UpdatePageButtons();
@@ -1910,9 +2282,29 @@ namespace AGS.Plugin.FontEditor
             UpdateGlyphTextbox();
 
             TxtGlyphRange.Text = FontInfo.Character.Length.ToString();
-
             e.Handled = true;
         }
+
+        // Put this helper anywhere inside FontEditorPane (same class)
+        private void MakeGlyphPlaceholder(CCharInfo ch)
+        {
+            if (ch == null) return;
+
+            ch.Width = 0;
+            ch.Height = 0;
+            ch.WidthOriginal = 0;
+            ch.HeightOriginal = 0;
+
+            ch.ByteLines = null;
+            ch.ByteLinesOriginal = null;
+
+            ch.UnscaledImage = null;
+
+            // optional but recommended so undo/redo won’t reference old data
+            ch.UndoRedoListClear();
+            ch.UndoRedoPosition = 0;
+        }
+
 
         private void UpdateGlyphTextbox()
         {
@@ -2065,6 +2457,10 @@ namespace AGS.Plugin.FontEditor
                 if (ch == null)
                     continue;
 
+                // 🔴 Skip placeholder glyphs
+                if (ch.Height <= 0)
+                    continue;
+
                 size += 2; // Width
                 size += 2; // Height
 
@@ -2072,10 +2468,111 @@ namespace AGS.Plugin.FontEditor
                 size += ch.Height * bytesPerLine;
             }
 
-            size += FontInfo.Character.Length * 2; // Offset table (UInt16 per glyph)
+            // 🔵 IMPORTANT NOTE:
+            // Offset table size does NOT count toward 64KB limit.
+            // Only check that it STARTS before 65535.
+            // So we do NOT add Character.Length * 2 here.
 
             return size;
         }
 
+
+        private const int PLACEHOLDER_W = 8;
+        private const int PLACEHOLDER_H = 9;
+
+        // Temporary drawing-area image for placeholder glyphs.
+        // IMPORTANT: This does NOT modify the glyph or store into UnscaledImage.
+        private Bitmap GetDrawingAreaBitmapForGlyph(CCharInfo ch)
+        {
+            if (ch != null && ch.UnscaledImage is Bitmap realBmp)
+                return realBmp;
+
+            // Make a temp bitmap (black 1bpp) so Zoom/Draw don't crash and it's 8x9 (not 1x1, not 4x4).
+            return new Bitmap(PLACEHOLDER_W, PLACEHOLDER_H, PixelFormat.Format1bppIndexed);
+        }
+
+        // Refresh drawing area display without materializing the glyph.
+        private void RefreshDrawingAreaDisplay(CCharInfo characterinfo)
+        {
+            if (characterinfo == null)
+                return;
+
+            Bitmap src = GetDrawingAreaBitmapForGlyph(characterinfo);
+
+            Bitmap scaled;
+            CFontUtils.ScaleBitmap(src, out scaled, ZoomDrawingArea.Value);
+
+            if (scaled != null)
+            {
+                DrawingArea.Size = scaled.Size;
+                DrawingArea.Image = scaled;
+                DrawingArea.Invalidate();
+            }
+        }
+
+        private void RefreshPlaceholders()
+        {
+            foreach (PictureBox pict in CharacterPictureList)
+            {
+                CCharInfo item = pict.Tag as CCharInfo;
+
+                if (item == null)
+                    continue;
+
+                // Placeholder = no bitmap data
+                if (item.Width == 0 || item.Height == 0 || item.UnscaledImage == null)
+                {
+                    int previewW = 8 * Scalefactor;
+                    int previewH = 9 * Scalefactor;
+
+                    Bitmap placeholder = new Bitmap(previewW, previewH);
+                    using (Graphics g = Graphics.FromImage(placeholder))
+                    {
+                        g.Clear(FlowCharacterPanel.BackColor);
+
+                        using (Pen pen = new Pen(Color.White))
+                        {
+                            g.DrawRectangle(pen, 0, 0, previewW - 1, previewH - 1);
+                        }
+                    }
+
+                    pict.Image = placeholder;
+                    pict.Width = previewW;
+                    pict.Height = previewH;
+                }
+            }
+        }
+
+        private void SetSelectedPreview(PictureBox pict)
+        {
+            if (_selectedPreview == pict)
+                return;
+
+            // repaint old + new only (fast)
+            if (_selectedPreview != null)
+                _selectedPreview.Invalidate();
+
+            _selectedPreview = pict;
+
+            if (_selectedPreview != null)
+                _selectedPreview.Invalidate();
+        }
+
+        private void CharacterPreview_Paint(object sender, PaintEventArgs e)
+        {
+            PictureBox pb = sender as PictureBox;
+            if (pb == null)
+                return;
+
+            if (pb == _selectedPreview)
+            {
+                using (Pen pen = new Pen(Color.DeepSkyBlue, 2))
+                {
+                    Rectangle r = pb.ClientRectangle;
+                    r.Inflate(0, 0); // keep inside bounds
+                    e.Graphics.DrawRectangle(pen, r);
+                }
+            }
+        }
     }
 }

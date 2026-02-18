@@ -118,7 +118,7 @@ namespace AGS.Plugin.FontEditor
         public string FontName;
         public string WFNName;
         public CCharInfo[] Character;
-        public Int16 NumberOfCharacters;
+        public int NumberOfCharacters;
         public UInt16 TextHeight; // only SCI fonts
 
         protected byte[] StringToByteArray(string str)
@@ -163,45 +163,75 @@ namespace AGS.Plugin.FontEditor
         {
             byte[] name = binaryReader.ReadBytes(15);
             WFNName = ByteArrayToString(name);
+
             UInt16 offset = binaryReader.ReadUInt16();
 
+            // Offsets table starts at "offset"
             binaryReader.BaseStream.Position = offset;
 
-            NumberOfCharacters = (Int16)((binaryReader.BaseStream.Length - offset) / 2);
+            long bytesLeft = binaryReader.BaseStream.Length - offset;
+            if (bytesLeft < 0) bytesLeft = 0;
 
-            UInt16[] positionArray = new UInt16[NumberOfCharacters];
-            Character = new CCharInfo[NumberOfCharacters];
+            int numChars = (int)(bytesLeft / 2);
+            NumberOfCharacters = numChars;
 
-            for (int counter = 0; counter < NumberOfCharacters; counter++)
+            UInt16[] positionArray = new UInt16[numChars];
+            Character = new CCharInfo[numChars];
+
+            for (int i = 0; i < numChars; i++)
+                positionArray[i] = binaryReader.ReadUInt16();
+
+            for (int i = 0; i < numChars; i++)
             {
-                positionArray[counter] = binaryReader.ReadUInt16();
-            }
+                UInt16 pos = positionArray[i];
 
-            for (int counter = 0; counter < NumberOfCharacters; counter++)
-            {
-                binaryReader.BaseStream.Position = positionArray[counter];
-
-                Character[counter] = new CCharInfo();
-
-                Character[counter].Index = counter;
-                Character[counter].Width = binaryReader.ReadUInt16();
-                Character[counter].Height = binaryReader.ReadUInt16();
-
-                Character[counter].WidthOriginal = Character[counter].Width;
-                Character[counter].HeightOriginal = Character[counter].Height;
-
-                if (counter == NumberOfCharacters - 1)
+                // offset==0 means "missing/placeholder glyph"
+                if (pos == 0)
                 {
-                    Character[NumberOfCharacters - 1].ByteLines = binaryReader.ReadBytes(offset - positionArray[counter] - 4);
-                    Character[NumberOfCharacters - 1].ByteLinesOriginal = new byte[Character[NumberOfCharacters - 1].ByteLines.Length];
-                    Array.Copy(Character[NumberOfCharacters - 1].ByteLines, Character[NumberOfCharacters - 1].ByteLinesOriginal, Character[NumberOfCharacters - 1].ByteLines.Length);
+                    Character[i] = new CCharInfo
+                    {
+                        Index = i,
+                        Width = 0,
+                        Height = 0,
+                        WidthOriginal = 0,
+                        HeightOriginal = 0,
+                        ByteLines = null,
+                        ByteLinesOriginal = null
+                    };
+                    continue;
                 }
-                else
+
+                binaryReader.BaseStream.Position = pos;
+
+                var ch = new CCharInfo();
+                ch.Index = i;
+
+                ch.Width = binaryReader.ReadUInt16();
+                ch.Height = binaryReader.ReadUInt16();
+                ch.WidthOriginal = ch.Width;
+                ch.HeightOriginal = ch.Height;
+
+                // If zero-size, treat as placeholder and skip data
+                if (ch.Width == 0 || ch.Height == 0)
                 {
-                    Character[counter].ByteLines = binaryReader.ReadBytes(positionArray[counter + 1] - positionArray[counter] - 4);
-                    Character[counter].ByteLinesOriginal = new byte[Character[counter].ByteLines.Length];
-                    Array.Copy(Character[counter].ByteLines, Character[counter].ByteLinesOriginal, Character[counter].ByteLines.Length);
+                    ch.ByteLines = null;
+                    ch.ByteLinesOriginal = null;
+                    Character[i] = ch;
+                    continue;
                 }
+
+                int bytesPerLine = (ch.Width - 1) / 8 + 1;
+                int totalBytes = ch.Height * bytesPerLine;
+
+                // Defensive: don't read beyond stream
+                long remaining = binaryReader.BaseStream.Length - binaryReader.BaseStream.Position;
+                if (remaining < totalBytes) totalBytes = (int)Math.Max(0, remaining);
+
+                ch.ByteLines = binaryReader.ReadBytes(totalBytes);
+                ch.ByteLinesOriginal = new byte[ch.ByteLines.Length];
+                Array.Copy(ch.ByteLines, ch.ByteLinesOriginal, ch.ByteLines.Length);
+
+                Character[i] = ch;
             }
         }
 
@@ -215,11 +245,15 @@ namespace AGS.Plugin.FontEditor
             if (Character == null)
                 return 0;
 
-            long estimatedSize = 17; // header
+            long estimatedSize = 17; // header (15 + 2)
 
             foreach (CCharInfo item in Character)
             {
                 if (item == null)
+                    continue;
+
+                // Skip placeholder glyphs
+                if (item.Height <= 0 || item.Width <= 0)
                     continue;
 
                 estimatedSize += 2; // width
@@ -229,101 +263,107 @@ namespace AGS.Plugin.FontEditor
                 estimatedSize += item.Height * bytesPerLine;
             }
 
-            estimatedSize += Character.Length * 2; // offset table
+            // ❌ DO NOT add offset table here
 
             return estimatedSize;
         }
 
         public override void Write(System.IO.BinaryWriter binaryWriter)
         {
-            long estimatedSize = 17; // header
-
-            foreach (CCharInfo item in Character)
-            {
-                if (item == null)
-                    throw new Exception("Cannot save: Character array contains null glyph entries.");
-
-                estimatedSize += 2; // width
-                estimatedSize += 2; // height
-
-                int bytesPerLine = (item.Width - 1) / 8 + 1;
-                estimatedSize += item.Height * bytesPerLine;
-            }
-
-            estimatedSize += Character.Length * 2; // offset table
-
-            if (estimatedSize > 65535)
-            {
-                throw new Exception(
-                    "Font exceeds 64KB. The WFN format used by AGS does not support files larger than 65,535 bytes.");
-            }
-
             if (Character == null)
                 throw new Exception("No font data to save (Character array is null).");
 
-            Int64 PositionOfChars = 0;
-
-            if ((WFNName == null) || (WFNName == ""))
-            {
+            if (string.IsNullOrEmpty(WFNName))
                 WFNName = "WGT Font File  ";
+
+            // Header
+            binaryWriter.Write(StringToByteArray(WFNName));
+            binaryWriter.Write((UInt16)1); // dummy; will patch later
+
+            // 🔵 Find last non-placeholder glyph
+            int lastUsedIndex = -1;
+
+            for (int i = Character.Length - 1; i >= 0; i--)
+            {
+                CCharInfo ch = Character[i];
+
+                if (ch != null && ch.Width > 0 && ch.Height > 0)
+                {
+                    lastUsedIndex = i;
+                    break;
+                }
             }
 
-            binaryWriter.Write(StringToByteArray(WFNName));
-            binaryWriter.Write((UInt16)1); // Dummy, because offset is not yet known
+            // If everything is placeholder, still keep index 0
+            if (lastUsedIndex < 0)
+                lastUsedIndex = 0;
 
-            UInt16[] positionArray = new UInt16[Character.Length];
+            // 🔵 Only allocate offset table up to last used glyph
+            UInt16[] positionArray = new UInt16[lastUsedIndex + 1];
 
-            foreach (CCharInfo item in Character)
+            // Write glyph data
+            for (int i = 0; i <= lastUsedIndex; i++)
             {
-                if (item == null)
-                    throw new Exception("Cannot save: Character array contains null glyph entries.");
+                CCharInfo item = Character[i];
 
-                positionArray[item.Index] = (UInt16)binaryWriter.BaseStream.Position;
+                // Placeholder
+                if (item == null || item.Width == 0 || item.Height == 0)
+                {
+                    positionArray[i] = 0;
+                    continue;
+                }
+
+                // Ensure ByteLines exists
+                if (item.ByteLines == null)
+                {
+                    int bytesPerLine0 = (item.Width - 1) / 8 + 1;
+                    item.ByteLines = new byte[item.Height * bytesPerLine0];
+                }
+
+                long pos = binaryWriter.BaseStream.Position;
+
+                if (pos > UInt16.MaxValue)
+                    throw new Exception("WFN glyph data exceeded 64KB. Reduce glyph count/size.");
+
+                positionArray[i] = (UInt16)pos;
 
                 binaryWriter.Write(item.Width);
                 binaryWriter.Write(item.Height);
 
-                if (item.ByteLines != null)
+                int bytesPerLine = (item.Width - 1) / 8 + 1;
+                int totalBytes = item.Height * bytesPerLine;
+
+                if (item.ByteLines.Length != totalBytes)
                 {
-                    binaryWriter.Write(item.ByteLines);
-                }
-                else
-                {
-                    // Keep strict WFN compatibility: write full empty data (not sparse)
-                    int bytesPerLine = (item.Width - 1) / 8 + 1;
-                    int totalBytes = item.Height * bytesPerLine;
-                    binaryWriter.Write(new byte[totalBytes]);
+                    byte[] fixedBytes = new byte[totalBytes];
+                    int copy = Math.Min(totalBytes, item.ByteLines.Length);
+                    Array.Copy(item.ByteLines, fixedBytes, copy);
+                    item.ByteLines = fixedBytes;
                 }
 
+                binaryWriter.Write(item.ByteLines);
+
+                // Originals bookkeeping
                 item.WidthOriginal = item.Width;
                 item.HeightOriginal = item.Height;
 
-                if (item.ByteLines != null)
-                {
-                    item.ByteLinesOriginal = new byte[item.ByteLines.Length];
-                    Array.Copy(item.ByteLines, item.ByteLinesOriginal, item.ByteLines.Length);
-                }
-                else
-                {
-                    item.ByteLinesOriginal = null;
-                }
+                item.ByteLinesOriginal = new byte[item.ByteLines.Length];
+                Array.Copy(item.ByteLines, item.ByteLinesOriginal, item.ByteLines.Length);
             }
 
-            // Remember where the offsets table starts
-            PositionOfChars = binaryWriter.BaseStream.Position;
+            // Offset table position
+            long offsetTablePos = binaryWriter.BaseStream.Position;
 
-            // Write the offsets table (UInt16 per glyph index, sequential!)
-            for (int counter = 0; counter < Character.Length; counter++)
-            {
-                binaryWriter.Write(positionArray[counter]);
-            }
+            if (offsetTablePos > UInt16.MaxValue)
+                throw new Exception("WFN offset table pointer exceeded 64KB. Reduce glyph data size.");
 
-            // Now patch header with the table offset
-            long endPos = binaryWriter.BaseStream.Position;
+            // Write offset table (ONLY up to lastUsedIndex)
+            for (int i = 0; i < positionArray.Length; i++)
+                binaryWriter.Write(positionArray[i]);
+
+            // Patch header pointer
             binaryWriter.BaseStream.Position = 15;
-            binaryWriter.Write((UInt16)PositionOfChars);
-            binaryWriter.BaseStream.Position = endPos;
-
+            binaryWriter.Write((UInt16)offsetTablePos);
         }
     }
 
@@ -423,6 +463,19 @@ namespace AGS.Plugin.FontEditor
     {
         public static void RecreateCharacter(CCharInfo character, UInt16 newwidth, UInt16 newheight)
         {
+            // If glyph is empty, just initialize fresh bitmap
+            if (character.Width == 0 || character.Height == 0 || character.UnscaledImage == null)
+            {
+                character.Width = newwidth;
+                character.Height = newheight;
+
+                Bitmap blank = new Bitmap(newwidth, newheight, PixelFormat.Format1bppIndexed);
+                SaveByteLinesFromPicture(character, blank);
+
+                character.UnscaledImage = blank;
+                return;
+            }
+
             Bitmap oldbitmap;
             Bitmap tmpbitmap = new Bitmap(newwidth, newheight);
             Bitmap newbitmap = new Bitmap(newwidth, newheight, PixelFormat.Format1bppIndexed);
@@ -455,7 +508,8 @@ namespace AGS.Plugin.FontEditor
         {
             if (character.Width == 0 || character.Height == 0)
             {
-                bmp = new System.Drawing.Bitmap(4, 4, System.Drawing.Imaging.PixelFormat.Format1bppIndexed);
+                bmp = null;
+                return;
             }
             else
             {
@@ -555,11 +609,20 @@ namespace AGS.Plugin.FontEditor
 
         public static void ScaleBitmap(Bitmap bitmap, out Bitmap newbmp, Int32 scale)
         {
-            newbmp = new Bitmap(bitmap, bitmap.Width * scale, bitmap.Height * scale);
-            Graphics g = Graphics.FromImage(newbmp);
-            g.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.NearestNeighbor;
-            g.PixelOffsetMode = System.Drawing.Drawing2D.PixelOffsetMode.Half;
-            g.DrawImage(bitmap, 0, 0, newbmp.Width, newbmp.Height);
+            if (bitmap == null)
+            {
+                newbmp = null;
+                return;
+            }
+
+            newbmp = new Bitmap(bitmap.Width * scale, bitmap.Height * scale);
+
+            using (Graphics g = Graphics.FromImage(newbmp))
+            {
+                g.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.NearestNeighbor;
+                g.PixelOffsetMode = System.Drawing.Drawing2D.PixelOffsetMode.Half;
+                g.DrawImage(bitmap, 0, 0, newbmp.Width, newbmp.Height);
+            }
         }
     }
 }
