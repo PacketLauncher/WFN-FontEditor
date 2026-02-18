@@ -13,5 +13,6 @@ It includes the following improvements, along with better performance when manip
 - New 'Save as' button in case of not wanting to overwrite the current font file.
 - New 'Remove glyph data' context menu item when right-clicking a glyph for reverting it into a placeholder (reduces file size).
 - New 'Make all blanks placeholders' button for making ALL empty data glyphs (those which are entirely black) into placeholders for reducing file size (affects only the visible glyphs page). Keep in mind that if you're on the first page that contains glyphs 0-255, this will also affect index number 32 which is the 'space' character; at this stage of version I did not want to exclude this character from the function, so set it back to a clear (black) glyph and adjust its width back to your liking if you don't see spaces in your font.
+- Standalone application icon.
 
 If you get an error when launching AGS after copying the plugin's .dll file to the AGS installation directory, this is caused by Windows blocking the dll file since it came from another computer; just right-click on the 'AGS.Plugin.FontEditor.dll' file, select 'Properties' and check the 'Unblock' checkbox at the bottom of the window. Then hit Apply and OK and re-launch AGS.

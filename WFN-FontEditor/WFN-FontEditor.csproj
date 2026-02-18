@@ -48,6 +48,9 @@
     <Prefer32Bit>false</Prefer32Bit>
     <PlatformTarget>x86</PlatformTarget>
   </PropertyGroup>
+  <PropertyGroup>
+    <ApplicationIcon>FontEditor.ico</ApplicationIcon>
+  </PropertyGroup>
   <ItemGroup>
     <Reference Include="AGS.Types">
       <HintPath>..\lib\AGS.Types.dll</HintPath>
@@ -94,6 +97,9 @@
       <Project>{0BE215B5-F4A4-43DF-92F8-FB9CDE4728E8}</Project>
       <Name>AGS.Plugin.FontEditor</Name>
     </ProjectReference>
+  </ItemGroup>
+  <ItemGroup>
+    <Content Include="FontEditor.ico" />
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
   <!-- To modify your build process, add your task inside one of the targets below and uncomment it. 
