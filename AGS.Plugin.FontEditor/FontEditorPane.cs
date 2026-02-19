@@ -165,6 +165,10 @@ namespace AGS.Plugin.FontEditor
             this.CreateControl();
             LoadInternalResources();
         }
+        public CFontInfo CurrentFontInfo
+        {
+            get { return FontInfo; }
+        }
 
         public FontEditorPane()
         {
@@ -2573,6 +2577,15 @@ namespace AGS.Plugin.FontEditor
                     e.Graphics.DrawRectangle(pen, r);
                 }
             }
+        }
+        public void LoadFontFromMemory(CFontInfo font)
+        {
+            this.FontInfo = font;
+
+            if (FontInfo != null)
+                TxtGlyphRange.Text = FontInfo.NumberOfCharacters.ToString();
+
+            RebuildPage();
         }
     }
 }

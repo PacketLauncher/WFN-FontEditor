@@ -8,13 +8,17 @@ It includes the following improvements, along with better performance when manip
 - Live notification text above the preview pane, showing the current file size. The text will turn red if size exceeds the 64kb limit and won't allow saving to prevent corruption; it will re-change back to black and saving will be restored once the file size is within the 64kb threshold, which can be done by making certain glyphs placeholders instead of bitmap data (see below).
 - Glyphs preview is now designed in pages* of 256 glyphs each, along with page buttons and page number text field for jumping to a specific page.
 *The buttons that used to affect all characters in the preview, such as *All height/width to current* and *Outline font* will affect only the current page, so glyphs in other pages remain intact.
-- New selected glyph indicator in the preview pane (no more guessing where you are).
-- New character field above the index field where you can type to select that glyph, which also jumps to the page containing it (the index and character fields are tied together; you can either type an index number in the index field or a character in the field above it and the other will sync accordingly).
-- New 'Save as' button in case of not wanting to overwrite the current font file.
-- New 'Remove glyph data' context menu item when right-clicking a glyph for reverting it into a placeholder (reduces file size).
-- New 'Make all blanks placeholders' button for making ALL empty data glyphs (those which are entirely black) into placeholders for reducing file size (affects only the visible glyphs page). Keep in mind that if you're on the first page that contains glyphs 0-255, this will also affect index number 32 which is the 'space' character; at this stage of version I did not want to exclude this character from the function, so set it back to a clear (black) glyph and adjust its width back to your liking if you don't see spaces in your font.
-- Standalone application icon.
-- 'Convert selected' button was renamed to 'SCI/WFN conversion' and a dialog message was added to it.
+- Selected glyph indicator in the preview pane (no more guessing where you are).
+- Character field above the index field where you can type to select that glyph, which also jumps to the page containing it (the index and character fields are tied together; you can either type an index number in the index field or a character in the field above it and the other will sync accordingly).
+- 'New' button for creating a blank WFN font.
+- Fonts pane was removed altogether, and 'Open Directory' button was replaced with a proper 'Open' button (support opening multiple files at once).
+- Font tabs can now be closed by the X icon or with the middle mouse click, and an asterisk is showing on them for unsaved work.
+- 'Save as' button in case of not wanting to overwrite the current font.
+- 'Convert selected' button was renamed to 'SCI/WFN conversion' and appropriate logic and notifications were set for it.
 - 'text height' text field was removed since it never seemed to work.
+- 'Remove glyph data' context menu item is now available when right-clicking a glyph for reverting it into a placeholder (reduces file size).
+- 'Make all blanks placeholders' button for making ALL empty data glyphs (those which are entirely black) into placeholders for reducing file size (affects only the visible glyphs page). Keep in mind that if you're on the first page that contains glyphs 0-255, this will also affect index number 32 which is the 'space' character; at this stage of version I did not want to exclude this character from the function, so set it back to a clear (black) glyph and adjust its width back to your liking if you don't see spaces in your font.
+- Intiate program window size is now 60px wider for showing the hidden controls on the right.
+- Standalone EXE application now has an icon.
 
 If you get an error when launching AGS after copying the plugin's .dll file to the AGS installation directory, this is caused by Windows blocking the dll file since it came from another computer; just right-click on the 'AGS.Plugin.FontEditor.dll' file, select 'Properties' and check the 'Unblock' checkbox at the bottom of the window. Then hit Apply and OK and re-launch AGS.

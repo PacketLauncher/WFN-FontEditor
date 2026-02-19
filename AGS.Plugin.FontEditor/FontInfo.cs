@@ -1,7 +1,8 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.Drawing;
 using System.Drawing.Imaging;
-using System.Collections.Generic;
+using System.Windows.Forms;
 
 namespace AGS.Plugin.FontEditor
 {
@@ -414,6 +415,23 @@ namespace AGS.Plugin.FontEditor
 
         public override void Write(System.IO.BinaryWriter binaryWriter)
         {
+            int glyphLimit = 256;
+
+            if (Character != null && Character.Length > glyphLimit)
+            {
+                DialogResult result = MessageBox.Show(
+                    $"Warning!\n\nSCI fonts are limited to 256 glyphs (0–255).\n\nThe current font contains {Character.Length} glyphs.\n\nAll glyphs beyond 256 will NOT be saved.\n\nContinue?",
+                    "SCI Glyph Limit",
+                    MessageBoxButtons.OKCancel,
+                    MessageBoxIcon.Warning);
+
+                if (result != DialogResult.OK)
+                    return;
+
+                Array.Resize(ref Character, glyphLimit);
+                NumberOfCharacters = glyphLimit;
+            }
+
             binaryWriter.Write((UInt16)0x87);
             binaryWriter.Write((UInt16)0x00);
             binaryWriter.Write((UInt16)Character.Length);
@@ -438,6 +456,12 @@ namespace AGS.Plugin.FontEditor
 
             foreach (CCharInfo item in Character)
             {
+                if (item == null)
+                    continue;
+
+                if (item.ByteLines == null)
+                    item.ByteLines = new byte[0];
+
                 positionArray[item.Index] = (UInt16)binaryWriter.BaseStream.Position;
 
                 binaryWriter.Write((byte)item.Width);
@@ -446,6 +470,7 @@ namespace AGS.Plugin.FontEditor
 
                 item.WidthOriginal = item.Width;
                 item.HeightOriginal = item.Height;
+
                 item.ByteLinesOriginal = new byte[item.ByteLines.Length];
                 Array.Copy(item.ByteLines, item.ByteLinesOriginal, item.ByteLines.Length);
             }
