@@ -35,6 +35,7 @@
             this.BtnSave = new System.Windows.Forms.Button();
             this.BtnSaveAs = new System.Windows.Forms.Button();
             this.BtnConvert = new System.Windows.Forms.Button();
+            this.BtnAbout = new System.Windows.Forms.Button();
             this.SuspendLayout();
             // 
             // BtnNew
@@ -98,6 +99,16 @@
             this.BtnConvert.UseVisualStyleBackColor = true;
             this.BtnConvert.Click += new System.EventHandler(this.BtnConvert_Click);
             // 
+            // BtnAbout
+            // 
+            this.BtnAbout.Location = new System.Drawing.Point(910, 12);
+            this.BtnAbout.Name = "BtnAbout";
+            this.BtnAbout.Size = new System.Drawing.Size(120, 23);
+            this.BtnAbout.TabIndex = 1;
+            this.BtnAbout.Text = "About";
+            this.BtnAbout.UseVisualStyleBackColor = true;
+            this.BtnAbout.Click += new System.EventHandler(this.BtnAbout_Click);
+            // 
             // MainWindow
             // 
             this.AutoScaleDimensions = new System.Drawing.SizeF(6F, 13F);
@@ -105,6 +116,7 @@
             this.ClientSize = new System.Drawing.Size(981, 580);
             this.Controls.Add(this.TabControl);
             this.Controls.Add(this.BtnConvert);
+            this.Controls.Add(this.BtnAbout);
             this.Controls.Add(this.BtnSave);
             this.Controls.Add(this.BtnSaveAs);
             this.Controls.Add(this.BtnNew);
@@ -124,6 +136,7 @@
 		private System.Windows.Forms.Button BtnSave;
 		private System.Windows.Forms.Button BtnSaveAs;
 		private System.Windows.Forms.Button BtnConvert;
+        private System.Windows.Forms.Button BtnAbout;
         //private System.Windows.Forms.TextBox TxtTextHeight; // the TextHeight never seemed to work and hence removed
         //private System.Windows.Forms.Label LblTextHeight; // the TextHeight never seemed to work and hence removed
     }

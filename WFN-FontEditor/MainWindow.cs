@@ -583,6 +583,14 @@ namespace WFN_FontEditor
                 OpenFontFileInTab(newname);
             }
         }
+        private void BtnAbout_Click(object sender, EventArgs e)
+        {
+            DialogResult result = MessageBox.Show(
+                "WFN-FontEditor (256 ASCII characters) by Rulaman:\nhttps://github.com/Rulaman/WFN-FontEditor\n\nImproved version with full Unicode support by PacketLauncher (Gal Shemesh):\nhttps://github.com/PacketLauncher/WFN-FontEditor",
+                "About",
+                MessageBoxButtons.OK,
+                MessageBoxIcon.Information);
+        }
 
         protected override void OnFormClosing(FormClosingEventArgs e)
         {
