@@ -4,7 +4,7 @@ It includes the following improvements, along with better performance when manip
 
 Plugin & Standalone:
 - Full Unicode range support (65536 glyphs), up to 64kb of file size (current WFN format limitation).
-- Extending and shrinking the font range at will by entering the desired range number (from 0 to 65535).
+- Extending and shrinking the font range at will by entering the desired range number.
 - Offsets are now set to the latest glyph that contains data (black or white pixels); upon saving, if the last drawn glyph is 1000 and the current range is higher, the saved font will be set to 1000 for reducing the file size. That said, you could still see the higher range placeholders as long as the font is opened* in the editor, so you could keep editing glyphs beyond that. But once the font is re-opened you would see the actual saved range. *The plugin variant saves your changes when you either compile or save your game, but it will show the actual saved range only after re-launching the AGS Editor.
 - Live notification text above the preview pane, showing the current file size. The text will turn red if size exceeds the 64kb limit and won't allow saving to prevent corruption; it will re-change back to black and saving will be restored once the file size is within the 64kb threshold, which can be done by making certain glyphs placeholders instead of bitmap data (see below).
 - Glyphs preview is now designed in pages* of 256 glyphs each, along with page buttons and page number text field for jumping to a specific page.
