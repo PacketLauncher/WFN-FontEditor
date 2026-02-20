@@ -17,6 +17,9 @@ namespace WFN_FontEditor
             // Make window wider without breaking layout
             this.Width += 60;   // increase by 60 pixels
 
+            // Optional: prevent shrinking too small
+            this.MinimumSize = new Size(this.Width, this.Height);
+
             this.Shown += (s, e) => BtnNew.Focus();
         }
         private void BtnNew_Click(object sender, EventArgs e)

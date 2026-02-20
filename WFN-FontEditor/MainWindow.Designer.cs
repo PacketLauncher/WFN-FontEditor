@@ -101,7 +101,8 @@
             // 
             // BtnAbout
             // 
-            this.BtnAbout.Location = new System.Drawing.Point(910, 12);
+            this.BtnAbout.Anchor = ((System.Windows.Forms.AnchorStyles)((System.Windows.Forms.AnchorStyles.Top | System.Windows.Forms.AnchorStyles.Right)));
+            this.BtnAbout.Location = new System.Drawing.Point(850, 12);
             this.BtnAbout.Name = "BtnAbout";
             this.BtnAbout.Size = new System.Drawing.Size(120, 23);
             this.BtnAbout.TabIndex = 1;
