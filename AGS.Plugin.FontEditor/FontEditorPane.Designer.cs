@@ -73,6 +73,8 @@
             this.BtnAllBlankClear = new System.Windows.Forms.Button();
             this.TxtCharacter = new System.Windows.Forms.TextBox();
             this.TxtGlyph = new System.Windows.Forms.TextBox();
+            this.LblGlyphField = new System.Windows.Forms.Label();
+            this.LblIndexField = new System.Windows.Forms.Label();
             this.GrpAllCharacters = new System.Windows.Forms.GroupBox();
 			this.GrpOneCharacter = new System.Windows.Forms.GroupBox();
 			this.ChkOneAllCharacters = new System.Windows.Forms.CheckBox();
@@ -541,22 +543,44 @@
             // 
             // TxtGlyph
             // 
-            this.TxtGlyph.Location = new System.Drawing.Point(460, 54);
+            this.TxtGlyph.Location = new System.Drawing.Point(463, 54);
             this.TxtGlyph.Name = "TxtGlyph";
-            this.TxtGlyph.Size = new System.Drawing.Size(53, 20);
+            this.TxtGlyph.Size = new System.Drawing.Size(50, 20);
             this.TxtGlyph.TabIndex = 24;
             this.TxtGlyph.MaxLength = 1;
             this.TxtGlyph.KeyPress += new System.Windows.Forms.KeyPressEventHandler(this.TxtGlyph_KeyPress);
+            this.TxtGlyph.Leave += new System.EventHandler(this.TxtGlyph_Leave);
             // 
             // TxtCharacter
             // 
-            this.TxtCharacter.Location = new System.Drawing.Point(460, 77);
-			this.TxtCharacter.Name = "TxtCharacter";
-			this.TxtCharacter.Size = new System.Drawing.Size(53, 20);
-			this.TxtCharacter.TabIndex = 24;
-			this.TxtCharacter.KeyPress += new System.Windows.Forms.KeyPressEventHandler(this.TxtCharacter_KeyPress);
+            this.TxtCharacter.Location = new System.Drawing.Point(463, 77);
+            this.TxtCharacter.Name = "TxtCharacter";
+            this.TxtCharacter.Size = new System.Drawing.Size(50, 20);
+            this.TxtCharacter.TabIndex = 24;
+            this.TxtCharacter.KeyPress += new System.Windows.Forms.KeyPressEventHandler(this.TxtCharacter_KeyPress);
             this.TxtCharacter.Leave += new System.EventHandler(this.TxtCharacter_Leave);
-            this.TxtGlyph.Leave += new System.EventHandler(this.TxtGlyph_Leave);
+            // 
+            // LblGlyphField
+            // 
+            this.LblGlyphField.AutoSize = true;
+            this.LblGlyphField.Name = "LblGlyphField";
+            this.LblGlyphField.Size = new System.Drawing.Size(14, 13);
+            this.LblGlyphField.TabIndex = 27;
+            this.LblGlyphField.Text = "A";
+            this.LblGlyphField.Location = new System.Drawing.Point(
+                this.TxtGlyph.Left - 14,
+                this.TxtGlyph.Top + 3);
+            // 
+            // LblIndexField
+            // 
+            this.LblIndexField.AutoSize = true;
+            this.LblIndexField.Name = "LblIndexField";
+            this.LblIndexField.Size = new System.Drawing.Size(14, 13);
+            this.LblIndexField.TabIndex = 28;
+            this.LblIndexField.Text = "#";
+            this.LblIndexField.Location = new System.Drawing.Point(
+				this.TxtCharacter.Left - 14,
+				this.TxtCharacter.Top + 3);
             // 
             // GrpAllCharacters
             // 
@@ -608,7 +632,9 @@
 			this.AutoScaleMode = System.Windows.Forms.AutoScaleMode.Font;
 			this.Controls.Add(this.GrpOneCharacter);
 			this.Controls.Add(this.GrpAllCharacters);
-			this.Controls.Add(this.TxtCharacter);
+            this.Controls.Add(this.LblIndexField);
+            this.Controls.Add(this.LblGlyphField);
+            this.Controls.Add(this.TxtCharacter);
             this.Controls.Add(this.TxtGlyph);
             this.Controls.Add(this.BtnNext);
 			this.Controls.Add(this.BtnPrevious);
@@ -628,7 +654,9 @@
 			this.Controls.Add(this.ZoomDrawingArea);
 			this.Controls.Add(this.DrawingArea);
 			this.Controls.Add(this.GroupBox);
-			this.Name = "FontEditorPane";
+            this.LblGlyphField.BringToFront();
+            this.LblIndexField.BringToFront();
+            this.Name = "FontEditorPane";
 			this.Size = new System.Drawing.Size(1013, 510);
 			this.GroupBox.ResumeLayout(false);
 			((System.ComponentModel.ISupportInitialize)(this.ZoomDrawingArea)).EndInit();
@@ -696,6 +724,8 @@
 		private System.Windows.Forms.Button BtnAllBlankClear;
         private System.Windows.Forms.TextBox TxtCharacter;
         private System.Windows.Forms.TextBox TxtGlyph;
+        private System.Windows.Forms.Label LblGlyphField;
+        private System.Windows.Forms.Label LblIndexField;
         private System.Windows.Forms.GroupBox GrpAllCharacters;
 		private System.Windows.Forms.GroupBox GrpOneCharacter;
 		private System.Windows.Forms.CheckBox ChkOneAllCharacters;
