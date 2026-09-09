@@ -64,7 +64,8 @@
 			this.BtnRenderText = new System.Windows.Forms.Button();
 			this.PictRenderText = new System.Windows.Forms.PictureBox();
 			this.BtnSetText = new System.Windows.Forms.Button();
-			this.LblCharacter = new System.Windows.Forms.Label();
+            this.BtnDarkMode = new System.Windows.Forms.Button();
+            this.LblCharacter = new System.Windows.Forms.Label();
 			this.BtnPrevious = new System.Windows.Forms.Button();
 			this.BtnNext = new System.Windows.Forms.Button();
 			this.ChkGridFix = new System.Windows.Forms.CheckBox();
@@ -455,8 +456,8 @@
             | System.Windows.Forms.AnchorStyles.Right)));
 			this.PictRenderText.Location = new System.Drawing.Point(330, 479);
 			this.PictRenderText.Name = "PictRenderText";
-			this.PictRenderText.Size = new System.Drawing.Size(833, 28);
-			this.PictRenderText.TabIndex = 21;
+            this.PictRenderText.Size = new System.Drawing.Size(590, 28);
+            this.PictRenderText.TabIndex = 21;
 			this.PictRenderText.TabStop = false;
 			// 
 			// BtnSetText
@@ -469,10 +470,28 @@
 			this.BtnSetText.Text = "Set Text";
 			this.BtnSetText.UseVisualStyleBackColor = true;
 			this.BtnSetText.Click += new System.EventHandler(this.BtnSetText_Click);
-			// 
-			// LblCharacter
-			// 
-			this.LblCharacter.AutoSize = true;
+            //
+            // BtnDarkMode
+            //
+            this.BtnDarkMode.Anchor =
+                ((System.Windows.Forms.AnchorStyles)
+                ((System.Windows.Forms.AnchorStyles.Bottom |
+                  System.Windows.Forms.AnchorStyles.Right)));
+
+            this.BtnDarkMode.Location =
+                new System.Drawing.Point(926, 479);
+
+            this.BtnDarkMode.Name = "BtnDarkMode";
+            this.BtnDarkMode.Size = new System.Drawing.Size(75, 23);
+            this.BtnDarkMode.TabIndex = 29;
+            this.BtnDarkMode.Text = "Dark mode";
+            this.BtnDarkMode.UseVisualStyleBackColor = true;
+            this.BtnDarkMode.Click +=
+                new System.EventHandler(this.BtnDarkMode_Click);
+            // 
+            // LblCharacter
+            // 
+            this.LblCharacter.AutoSize = true;
 			this.LblCharacter.Font = new System.Drawing.Font("Microsoft Sans Serif", 9.75F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(0)));
 			this.LblCharacter.Location = new System.Drawing.Point(457, 100);
 			this.LblCharacter.Name = "LblCharacter";
@@ -639,7 +658,8 @@
             this.Controls.Add(this.BtnNext);
 			this.Controls.Add(this.BtnPrevious);
             this.Controls.Add(this.LblCharacter);
-			this.Controls.Add(this.PictRenderText);
+            this.Controls.Add(this.BtnDarkMode);
+            this.Controls.Add(this.PictRenderText);
             this.Controls.Add(this.BtnPagePrev);
             this.Controls.Add(this.BtnPageNext);
             this.Controls.Add(this.TxtPageNumber);
@@ -729,5 +749,6 @@
         private System.Windows.Forms.GroupBox GrpAllCharacters;
 		private System.Windows.Forms.GroupBox GrpOneCharacter;
 		private System.Windows.Forms.CheckBox ChkOneAllCharacters;
-	}
+        private System.Windows.Forms.Button BtnDarkMode;
+    }
 }

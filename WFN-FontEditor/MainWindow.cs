@@ -7,6 +7,113 @@ namespace WFN_FontEditor
 {
     public partial class MainWindow : Form
     {
+        private void TabControl_Paint(object sender, PaintEventArgs e)
+        {
+            if (!_standaloneDarkMode)
+                return;
+
+            using (SolidBrush brush =
+                new SolidBrush(Color.FromArgb(45, 45, 48)))
+            {
+                e.Graphics.FillRectangle(
+                    brush,
+                    TabControl.ClientRectangle);
+            }
+        }
+        private void UpdateTabControlVisibility()
+        {
+            if (TabControl.TabPages.Count == 0)
+            {
+                TabControl.Visible = false;
+
+                if (_standaloneDarkMode)
+                {
+                    this.BackColor =
+                        Color.FromArgb(45, 45, 48); // #2D2D30
+                }
+            }
+            else
+            {
+                TabControl.Visible = true;
+            }
+        }
+        public void ApplyStandaloneDarkHost(bool darkMode)
+        {
+            _standaloneDarkMode = darkMode;
+
+            Color outerColor =
+                darkMode
+                    ? Color.FromArgb(45, 45, 48)   // #2D2D30
+                    : SystemColors.Control;
+
+            Color buttonColor =
+                darkMode
+                    ? Color.FromArgb(63, 63, 70)   // #3F3F46
+                    : SystemColors.Control;
+
+            Color textColor =
+                darkMode
+                    ? Color.White
+                    : SystemColors.ControlText;
+
+            // Main window.
+            this.BackColor = outerColor;
+
+            // Top buttons.
+            foreach (Control control in this.Controls)
+            {
+                if (control is Button)
+                {
+                    Button button = (Button)control;
+
+                    button.UseVisualStyleBackColor = false;
+                    button.BackColor = buttonColor;
+                    button.ForeColor = textColor;
+
+                    button.FlatStyle =
+                        darkMode
+                            ? FlatStyle.Flat
+                            : FlatStyle.Standard;
+
+                    if (darkMode)
+                    {
+                        button.FlatAppearance.BorderColor =
+                            Color.FromArgb(100, 100, 105);
+                    }
+                }
+            }
+
+            // Tab control.
+            TabControl.BackColor = outerColor;
+
+            foreach (TabPage page in TabControl.TabPages)
+            {
+                page.UseVisualStyleBackColor = false;
+                page.BackColor = outerColor;
+                page.ForeColor = textColor;
+            }
+
+            TabControl.Invalidate();
+            this.Invalidate();
+        }
+
+        private void SelectTabProgrammatically(TabPage tab)
+        {
+            if (tab == null)
+                return;
+
+            _allowProgrammaticTabSelection = true;
+
+            try
+            {
+                TabControl.SelectedTab = tab;
+            }
+            finally
+            {
+                _allowProgrammaticTabSelection = false;
+            }
+        }
+        private bool _allowProgrammaticTabSelection = false;
         private TabPage _draggedTab = null;
         private TabPage _pressedTab = null;
         private int _lastDrawnDropTabIndex = -1;
@@ -17,12 +124,22 @@ namespace WFN_FontEditor
         private bool _tabDragging = false;
 
         private int _dropTabIndex = -1;
-
+        private bool _standaloneDarkMode = false;
         public MainWindow()
         {
             InitializeComponent();
             SetupTabClosingUI();
-            
+
+            // Restore the saved theme for the standalone window.
+            AGS.Plugin.FontEditor.Settings startupSettings =
+                new AGS.Plugin.FontEditor.Settings();
+
+            startupSettings.Read();
+
+            ApplyStandaloneDarkHost(startupSettings.DarkMode);
+
+            UpdateTabControlVisibility();
+
             this.AllowDrop = true;
             this.DragEnter += MainWindow_DragEnter;
             this.DragDrop += MainWindow_DragDrop;
@@ -186,8 +303,18 @@ namespace WFN_FontEditor
             fep.DragDrop += MainWindow_DragDrop;
 
             TabPage tp = new TabPage();
+            
+            tp.UseVisualStyleBackColor = false;
+            
             tp.Text = baseName + "*";
             tp.Tag = null;
+            
+            if (_standaloneDarkMode)
+            {
+                tp.BackColor = Color.FromArgb(45, 45, 48); // #2D2D30
+                tp.ForeColor = Color.White;
+            }
+
             tp.Controls.Add(fep);
             fep.Dock = DockStyle.Fill;
             fep.Tag = tp;
@@ -196,7 +323,14 @@ namespace WFN_FontEditor
             fep.OnFontModified += new EventHandler(fep_OnFontModified);
 
             TabControl.TabPages.Add(tp);
-            TabControl.SelectedTab = tp;
+
+            UpdateTabControlVisibility();
+
+            SelectTabProgrammatically(tp);
+
+            // The pane now belongs to MainWindow, so it can also
+            // apply the saved theme to the standalone host.
+            fep.ReapplyTheme();
         }
 
         private void BtnOpen_Click(object sender, EventArgs e)
@@ -305,7 +439,7 @@ namespace WFN_FontEditor
                 if (existing.Tag is string tagPath &&
                     string.Equals(tagPath, fullPath, StringComparison.OrdinalIgnoreCase))
                 {
-                    TabControl.SelectedTab = existing;
+                    SelectTabProgrammatically(existing);
                     return;
                 }
             }
@@ -318,14 +452,30 @@ namespace WFN_FontEditor
             fep.DragDrop += MainWindow_DragDrop;
 
             TabPage tp = new TabPage();
+
+            tp.UseVisualStyleBackColor = false;
+
             tp.Text = file;
             tp.Tag = fullPath;
+
+            if (_standaloneDarkMode)
+            {
+                tp.BackColor = Color.FromArgb(45, 45, 48); // #2D2D30
+                tp.ForeColor = Color.White;
+            }
+
             tp.Controls.Add(fep);
             fep.Dock = DockStyle.Fill;
             fep.Tag = tp;
 
             TabControl.TabPages.Add(tp);
-            TabControl.SelectedTab = tp;
+
+            UpdateTabControlVisibility();
+
+            SelectTabProgrammatically(tp);
+
+            // The pane is now attached to MainWindow.
+            fep.ReapplyTheme();
         }
 
         private void BtnSave_Click(object sender, EventArgs e)
@@ -451,6 +601,8 @@ namespace WFN_FontEditor
             {
                 tp.Text += "*";
             }
+
+            TabControl.Invalidate();
         }
 
         // ----------------------------
@@ -462,8 +614,9 @@ namespace WFN_FontEditor
             TabControl.Padding = new Point(18, 4);
 
             TabControl.DrawItem += TabControl_DrawItem;
+            TabControl.Paint += TabControl_Paint;
+
             TabControl.MouseDown += TabControl_MouseDown;
-            // Tab dragging/reordering
             TabControl.MouseMove += TabControl_MouseMove;
             TabControl.MouseUp += TabControl_MouseUp;
             TabControl.Selecting += TabControl_Selecting;
@@ -473,11 +626,8 @@ namespace WFN_FontEditor
             object sender,
             TabControlCancelEventArgs e)
         {
-            // Don't let Windows switch the displayed font merely because
-            // the left mouse button went down on another tab.
-            //
-            // MouseUp will perform the selection explicitly.
-            if (Control.MouseButtons == MouseButtons.Left)
+            if (!_allowProgrammaticTabSelection &&
+                Control.MouseButtons == MouseButtons.Left)
             {
                 e.Cancel = true;
             }
@@ -491,22 +641,143 @@ namespace WFN_FontEditor
             TabPage page = TabControl.TabPages[e.Index];
             Rectangle tabRect = TabControl.GetTabRect(e.Index);
 
-            // Background
-            e.Graphics.FillRectangle(SystemBrushes.Control, tabRect);
+            bool darkMode =
+    this.BackColor == Color.FromArgb(45, 45, 48);
 
-            // Text
-            Rectangle textRect = new Rectangle(tabRect.X + 2, tabRect.Y + 4, tabRect.Width - 18, tabRect.Height - 4);
-            TextRenderer.DrawText(e.Graphics, page.Text, Font, textRect, SystemColors.ControlText, TextFormatFlags.Left);
+            bool selected =
+                (e.State & DrawItemState.Selected) ==
+                DrawItemState.Selected;
 
-            // X button
-            Rectangle closeRect = GetCloseRect(tabRect);
-            TextRenderer.DrawText(e.Graphics, "x", Font, closeRect, SystemColors.ControlText,
-                TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
+            Color stripColor =
+                darkMode
+                    ? Color.FromArgb(45, 45, 48)       // #2D2D30
+                    : SystemColors.Control;
 
-            // Border highlight on selected
-            if ((e.State & DrawItemState.Selected) == DrawItemState.Selected)
+            Color tabColor;
+
+            if (darkMode)
             {
-                ControlPaint.DrawBorder(e.Graphics, tabRect, SystemColors.Highlight, ButtonBorderStyle.Solid);
+                tabColor =
+                    selected
+                        ? Color.FromArgb(0, 122, 204)  // #007ACC
+                        : Color.FromArgb(45, 45, 48);  // #2D2D30
+            }
+            else
+            {
+                tabColor = SystemColors.Control;
+            }
+
+            Color textColor =
+                darkMode
+                    ? Color.White
+                    : SystemColors.ControlText;
+
+
+            // Fill unused part of the tab strip on the LEFT.
+            if (darkMode && e.Index == 0 && tabRect.Left > 0)
+            {
+                using (SolidBrush stripBrush =
+                    new SolidBrush(stripColor))
+                {
+                    e.Graphics.FillRectangle(
+                        stripBrush,
+                        0,
+                        0,
+                        tabRect.Left,
+                        tabRect.Bottom + 2);
+                }
+            }
+
+
+            // Fill unused part of the tab strip on the RIGHT.
+            if (darkMode &&
+                e.Index == TabControl.TabPages.Count - 1 &&
+                tabRect.Right < TabControl.ClientSize.Width)
+            {
+                using (SolidBrush stripBrush =
+                    new SolidBrush(stripColor))
+                {
+                    e.Graphics.FillRectangle(
+                        stripBrush,
+                        tabRect.Right,
+                        0,
+                        TabControl.ClientSize.Width - tabRect.Right,
+                        tabRect.Bottom + 2);
+                }
+            }
+
+
+            // Tab background.
+            using (SolidBrush tabBrush =
+                new SolidBrush(tabColor))
+            {
+                e.Graphics.FillRectangle(
+                    tabBrush,
+                    tabRect);
+            }
+
+
+            // Text area.
+            Rectangle textRect =
+                new Rectangle(
+                    tabRect.X + 2,
+                    tabRect.Y + 4,
+                    tabRect.Width - 18,
+                    tabRect.Height - 4);
+
+
+            // Selected dark-mode tab uses bold white text.
+            // page.Text includes the *, so the unsaved marker becomes
+            // bold together with the filename.
+            if (selected)
+            {
+                using (Font selectedFont =
+                    new Font(Font, FontStyle.Bold))
+                {
+                    TextRenderer.DrawText(
+                        e.Graphics,
+                        page.Text,
+                        selectedFont,
+                        textRect,
+                        textColor,
+                        TextFormatFlags.Left);
+                }
+            }
+            else
+            {
+                TextRenderer.DrawText(
+                    e.Graphics,
+                    page.Text,
+                    Font,
+                    textRect,
+                    textColor,
+                    TextFormatFlags.Left);
+            }
+
+
+            // X button.
+            Rectangle closeRect =
+                GetCloseRect(tabRect);
+
+            TextRenderer.DrawText(
+                e.Graphics,
+                "x",
+                Font,
+                closeRect,
+                textColor,
+                TextFormatFlags.HorizontalCenter |
+                TextFormatFlags.VerticalCenter);
+
+
+            // Keep the normal selected border in Light mode.
+            // Dark mode already uses #007ACC as the selected-tab background.
+            if (!darkMode && selected)
+            {
+                ControlPaint.DrawBorder(
+                    e.Graphics,
+                    tabRect,
+                    SystemColors.Highlight,
+                    ButtonBorderStyle.Solid);
             }
 
             // Draw insertion indicator while dragging a tab.
@@ -904,13 +1175,13 @@ namespace WFN_FontEditor
                     warningIcon.Top + 8);
 
                 Button buttonYes = new Button();
-                buttonYes.Text = "Yes";
+                buttonYes.Text = "&Yes";
                 buttonYes.DialogResult = DialogResult.Yes;
                 buttonYes.Size = new Size(75, 23);
                 buttonYes.Location = new Point(63, 55);
 
                 Button buttonNo = new Button();
-                buttonNo.Text = "No";
+                buttonNo.Text = "&No";
                 buttonNo.DialogResult = DialogResult.No;
                 buttonNo.Size = new Size(75, 23);
                 buttonNo.Location = new Point(143, 55);
@@ -973,8 +1244,49 @@ namespace WFN_FontEditor
                 // No = do not save; simply continue and close.
             }
 
-            TabControl.TabPages.RemoveAt(index);
+            // If another tab will remain, select it BEFORE removing this one.
+            // This prevents the native TabControl from briefly displaying
+            // its empty light-colored background.
+            TabPage nextTab = null;
+
+            if (TabControl.TabPages.Count > 1)
+            {
+                if (index < TabControl.TabPages.Count - 1)
+                    nextTab = TabControl.TabPages[index + 1];
+                else
+                    nextTab = TabControl.TabPages[index - 1];
+            }
+
+            if (nextTab != null)
+            {
+                if (_standaloneDarkMode)
+                    nextTab.BackColor = Color.FromArgb(45, 45, 48);
+
+                SelectTabProgrammatically(nextTab);
+            }
+
+            // Make the page being removed dark as well, so there is no
+            // light frame during the removal itself.
+            if (_standaloneDarkMode)
+                tp.BackColor = Color.FromArgb(45, 45, 48);
+
+            // If this is the last tab, hide the native TabControl BEFORE
+            // removing the page. Otherwise it briefly paints its empty
+            // light-colored background.
+            if (TabControl.TabPages.Count == 1)
+            {
+                if (_standaloneDarkMode)
+                    this.BackColor = Color.FromArgb(45, 45, 48);
+
+                TabControl.Visible = false;
+            }
+
+            TabControl.TabPages.Remove(tp);
             tp.Dispose();
+
+            UpdateTabControlVisibility();
+
+            TabControl.Invalidate();
         }
 
         private void BtnConvert_Click(object sender, EventArgs e)
