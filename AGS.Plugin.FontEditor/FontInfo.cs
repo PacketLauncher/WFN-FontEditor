@@ -19,21 +19,44 @@ namespace AGS.Plugin.FontEditor
         public Image UnscaledImage;
         public Int32 Index;
 
-        public List<byte[]> UndoRedoList = new List<byte[]>();
+        private class UndoState
+        {
+            public UInt16 Width;
+            public UInt16 Height;
+            public byte[] ByteLines;
+        }
+
+        private List<UndoState> UndoRedoList = new List<UndoState>();
         public Int32 UndoRedoPosition = 0;
 
         public void UndoRedoListAdd(byte[] bytearray)
         {
+            UndoState newState = new UndoState();
+
+            newState.Width = Width;
+            newState.Height = Height;
+
+            if (bytearray != null)
+                newState.ByteLines = (byte[])bytearray.Clone();
+            else
+                newState.ByteLines = null;
+
             if (UndoRedoList.Count == 0)
             {
-                UndoRedoList.Add(bytearray);
-            }
-            else if (ArraysEqual(UndoRedoList[UndoRedoPosition], bytearray))
-            {
+                UndoRedoList.Add(newState);
             }
             else
             {
-                UndoRedoList.Add(bytearray);
+                UndoState current = UndoRedoList[UndoRedoPosition];
+
+                if (current.Width == newState.Width &&
+                    current.Height == newState.Height &&
+                    ArraysEqual(current.ByteLines, newState.ByteLines))
+                {
+                    return;
+                }
+
+                UndoRedoList.Add(newState);
                 UndoRedoPosition++;
             }
         }
@@ -63,15 +86,33 @@ namespace AGS.Plugin.FontEditor
             if (UndoRedoPosition > 0)
             {
                 UndoRedoPosition--;
-                ByteLines = UndoRedoList[UndoRedoPosition];
+
+                UndoState state = UndoRedoList[UndoRedoPosition];
+
+                Width = state.Width;
+                Height = state.Height;
+
+                if (state.ByteLines != null)
+                    ByteLines = (byte[])state.ByteLines.Clone();
+                else
+                    ByteLines = null;
             }
         }
         public void Redo()
         {
-            if (UndoRedoPosition < (UndoRedoList.Count))
+            if (UndoRedoPosition < UndoRedoList.Count - 1)
             {
                 UndoRedoPosition++;
-                ByteLines = UndoRedoList[UndoRedoPosition];
+
+                UndoState state = UndoRedoList[UndoRedoPosition];
+
+                Width = state.Width;
+                Height = state.Height;
+
+                if (state.ByteLines != null)
+                    ByteLines = (byte[])state.ByteLines.Clone();
+                else
+                    ByteLines = null;
             }
         }
 

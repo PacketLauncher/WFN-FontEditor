@@ -12,8 +12,19 @@ Plugin & Standalone:
 - Selected glyph indicator in the preview pane (no more guessing where you are).
 - Character field above the index field where you can type to select that glyph, which also jumps to the page containing it (the index and character fields are tied together; you can either type an index number in the index field or a character in the field above it and the other will sync accordingly).
 - 'Remove glyph data' context menu item is now available when right-clicking a glyph for reverting it into a placeholder (reduces file size).
+- 'Insert new glyph here' context menu item for inserting an empty index slot anywhere you want, making all glyphs after it to move 1 step forward (for safety, this will affect only the current page so indexes posiotion in other pages won't alter, and would work as long as the total index of the current page is less than 256.
+- 'Delete glyph' context menu item for deleting an index glyph entirely (for safety, this will NOT delete the actual index but only clear the glyph data and move all glyphs after it on the current page 1 step backward).
 - 'Make all blanks placeholders' button for making ALL empty data glyphs (those which are entirely black) into placeholders for reducing file size (affects only the visible glyphs page). Keep in mind that if you're on the first page that contains glyphs 0-255, this will also affect index number 32 which is the 'space' character; at this stage of version I did not want to exclude this character from the function, so set it back to a clear (black) glyph and adjust its width back to your liking if you don't see spaces in your font.
 - Font tabs can now be closed by the X icon or with the middle mouse click, and an asterisk is showing on them for unsaved work.
+- Font tabs can now move amongst each other.
+- Added keyboard shortcuts to the context menu operations, as well as of the main interaface buttons.
+- Improved warning dialog when closing an unsaved work.
+- Proper Undo and Redo.
+- Added A and # labels beside the glyph and index fields.
+- Multiple glyphs selection support! This is useful for copying and pasting a range of glyphs to another font easily, and would preserve the relative index positions for non-contiguous selections.
+- One Character operations would work on multiple selection as well. Other operations will deselect the multiple selection and would affect only the achor glyph showing on the canvas.
+- Ability to drag WFN files over the interface to opening them.
+
 
 Standalone only:
 - Fonts pane was removed altogether, and 'Open Directory' button was replaced with a proper 'Open' button (support opening multiple files at once).
@@ -29,3 +40,4 @@ Troubleshooting:
 - If you get an error when launching AGS after copying the plugin's .dll file to the AGS installation directory, this is caused by Windows blocking the dll file since it came from another computer; just right-click on the 'AGS.Plugin.FontEditor.dll' file, select 'Properties' and check the 'Unblock' checkbox at the bottom of the window. Then hit Apply and OK and re-launch AGS.
 - If the you're getting an error for the EXE variant, check if the file is blocked in its properties and if so, unblock it the same way.
 - If you copied the EXE variant to a system folder path, such as within the AGS installation folder under "C:\Program Files (x86)\Adventure Game Studio 3.6.x\", make sure to run it as Administrator, or else you will encounter with permission issues.
+- It was found that if the program is launched from a VERY long path (over 238 characters) that Windows File Explorer may crash and restart. This is not the program's issue but Windows'.

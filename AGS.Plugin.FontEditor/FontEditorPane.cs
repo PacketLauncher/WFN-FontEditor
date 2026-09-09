@@ -15,6 +15,44 @@ namespace AGS.Plugin.FontEditor
         Settings XmlSettings = new Settings();
         private List<PictureBox> CharacterPictureList = new List<PictureBox>();
         private PictureBox _selectedPreview = null;
+        private List<PictureBox> _selectedPreviews = new List<PictureBox>();
+        private class CopiedGlyph
+        {
+            public int SourceIndex;
+            public UInt16 Width;
+            public UInt16 Height;
+            public byte[] ByteLines;
+        }
+
+        private List<CopiedGlyph> _copiedGlyphs =
+            new List<CopiedGlyph>();
+        private Stack<List<int>> _multiUndoStack = new Stack<List<int>>();
+        private Stack<List<int>> _multiRedoStack = new Stack<List<int>>();
+        private enum StructuralEditType
+        {
+            Insert,
+            Delete,
+            MultiDelete
+        }
+
+        private class StructuralEdit
+        {
+            public StructuralEditType Type;
+            public int Index;
+            public int PageEnd;
+            public int OldLength;
+            public bool InsertGrewArray;
+            public CCharInfo DeletedCharacter;
+            public List<int> DeletedIndexes;
+            public List<CCharInfo> DeletedCharacters;
+        }
+
+        private Stack<StructuralEdit> _structuralUndoStack =
+            new Stack<StructuralEdit>();
+
+        private Stack<StructuralEdit> _structuralRedoStack =
+            new Stack<StructuralEdit>();
+        private PictureBox _selectionAnchor = null;
         private readonly ToolTip _toolTip = new ToolTip();
         private bool _bulkUpdate = false;
         private Int32 Index;
@@ -66,6 +104,24 @@ namespace AGS.Plugin.FontEditor
                     return false;
             }
             return true;
+        }
+
+        private void MarkFontModified()
+        {
+            if (FontModifiedSaved)
+                return;
+
+            FontModifiedSaved = true;
+
+            EventHandler doChange = OnFontModified;
+
+            if (doChange != null)
+            {
+                MyEventArgs me = new MyEventArgs();
+                me.Modified = true;
+
+                doChange(this, me);
+            }
         }
 
         private void CheckChange()
@@ -162,6 +218,9 @@ namespace AGS.Plugin.FontEditor
             numWidth.Maximum = MaxWidth;
             numHeight.Maximum = MaxHeight;
 
+            numWidth.MouseDown += NumSize_MouseDown;
+            numHeight.MouseDown += NumSize_MouseDown;
+
             this.CreateControl();
             LoadInternalResources();
         }
@@ -169,7 +228,29 @@ namespace AGS.Plugin.FontEditor
         {
             get { return FontInfo; }
         }
+        public void MarkAsSaved()
+        {
+            if (FontInfo == null || FontInfo.Character == null)
+                return;
 
+            foreach (CCharInfo character in FontInfo.Character)
+            {
+                if (character == null)
+                    continue;
+
+                character.WidthOriginal = character.Width;
+                character.HeightOriginal = character.Height;
+
+                if (character.ByteLines != null)
+                    character.ByteLinesOriginal =
+                        (byte[])character.ByteLines.Clone();
+                else
+                    character.ByteLinesOriginal = null;
+            }
+
+            // The current state is now the saved baseline.
+            FontModifiedSaved = false;
+        }
         public FontEditorPane()
         {
             BaseConstructor();
@@ -308,17 +389,44 @@ namespace AGS.Plugin.FontEditor
             pict.Width = item.Width * Scalefactor;
             pict.Height = item.Height * Scalefactor;
             pict.Click += new EventHandler(Character_Click);
+            pict.MouseDown += new MouseEventHandler(Character_MouseDown);
             pict.ContextMenu = new ContextMenu();
 
             _toolTip.SetToolTip(pict, Chr(item.Index));
 
             pict.ContextMenu.Tag = pict;
-            pict.ContextMenu.MenuItems.Add("Undo").Click += new EventHandler(MenuUndoClicked);
-            pict.ContextMenu.MenuItems.Add("Redo").Click += new EventHandler(MenuRedoClicked);
-            pict.ContextMenu.MenuItems.Add("Copy").Click += new EventHandler(MenuCopyClicked);
-            pict.ContextMenu.MenuItems.Add("Paste").Click += new EventHandler(MenuPasteClicked);
+            MenuItem menuUndo = pict.ContextMenu.MenuItems.Add("Undo");
+            menuUndo.Shortcut = Shortcut.CtrlZ;
+            menuUndo.Click += new EventHandler(MenuUndoClicked);
+
+            MenuItem menuRedo = pict.ContextMenu.MenuItems.Add("Redo");
+            menuRedo.Shortcut = Shortcut.CtrlY;
+            menuRedo.Click += new EventHandler(MenuRedoClicked);
+
+            MenuItem menuCopy = pict.ContextMenu.MenuItems.Add("Copy");
+            menuCopy.Shortcut = Shortcut.CtrlC;
+            menuCopy.Click += new EventHandler(MenuCopyClicked);
+
+            MenuItem menuPaste = pict.ContextMenu.MenuItems.Add("Paste");
+            menuPaste.Shortcut = Shortcut.CtrlV;
+            menuPaste.Click += new EventHandler(MenuPasteClicked);
+
             pict.ContextMenu.MenuItems.Add("-");
-            pict.ContextMenu.MenuItems.Add("Remove glyph data").Click += new EventHandler(MenuRemoveGlyphDataClicked);
+
+            MenuItem menuRemove = pict.ContextMenu.MenuItems.Add("Remove glyph data");
+            menuRemove.Shortcut = Shortcut.Del;
+            menuRemove.Click += new EventHandler(MenuRemoveGlyphDataClicked);
+
+            pict.ContextMenu.MenuItems.Add("-");
+
+            MenuItem menuInsert = pict.ContextMenu.MenuItems.Add("Insert a new glyph here");
+            menuInsert.Shortcut = Shortcut.Ins;
+            menuInsert.Click += new EventHandler(MenuInsertGlyphClicked);
+
+            MenuItem menuDelete = pict.ContextMenu.MenuItems.Add("Delete glyph");
+            menuDelete.Shortcut = Shortcut.ShiftDel;
+            menuDelete.Click += new EventHandler(MenuDeleteGlyphClicked);
+
             pict.ContextMenu.MenuItems[0].Enabled = false;
             pict.ContextMenu.MenuItems[1].Enabled = false;
 
@@ -367,6 +475,135 @@ namespace AGS.Plugin.FontEditor
             FlowCharacterPanel.Controls.Add(pict);
         }
 
+
+        private void RefreshCharacterPreview(PictureBox pict, CCharInfo item)
+        {
+            if (pict == null || item == null)
+                return;
+
+            // This PictureBox may now represent a different glyph after
+            // an Insert/Delete shift.
+            pict.Tag = item;
+            _toolTip.SetToolTip(pict, Chr(item.Index));
+
+            // Dispose the old displayed preview image.
+            if (pict.Image != null)
+            {
+                Image oldImage = pict.Image;
+                pict.Image = null;
+                oldImage.Dispose();
+            }
+
+            // Empty glyph: draw the normal placeholder.
+            if (item.Width == 0 || item.Height == 0)
+            {
+                int previewW = 8 * Scalefactor;
+                int previewH = 9 * Scalefactor;
+
+                Bitmap placeholder = new Bitmap(previewW, previewH);
+
+                using (Graphics g = Graphics.FromImage(placeholder))
+                {
+                    g.Clear(XmlSettings.Color);
+
+                    using (Pen pen = new Pen(Color.White))
+                    {
+                        g.DrawRectangle(
+                            pen,
+                            0,
+                            0,
+                            previewW - 1,
+                            previewH - 1);
+                    }
+                }
+
+                pict.Image = placeholder;
+                pict.Width = previewW;
+                pict.Height = previewH;
+
+                item.UnscaledImage = null;
+            }
+            else
+            {
+                Bitmap bitmap;
+                CFontUtils.CreateBitmap(item, out bitmap);
+
+                item.UnscaledImage = bitmap;
+
+                Bitmap outbmp;
+                CFontUtils.ScaleBitmap(bitmap, out outbmp, Scalefactor);
+
+                pict.Image = outbmp;
+                pict.Width = outbmp.Width;
+                pict.Height = outbmp.Height;
+            }
+
+            pict.Invalidate();
+        }
+
+
+        private void RefreshPageFromIndex(int startIndex)
+        {
+            if (FontInfo == null || FontInfo.Character == null)
+                return;
+
+            int desiredCount =
+                Math.Min(PageSize, FontInfo.Character.Length - PageStart);
+
+            if (desiredCount < 0)
+                desiredCount = 0;
+
+            FlowCharacterPanel.SuspendLayout();
+
+            try
+            {
+                // If Insert increased a partial page, create only the
+                // newly required preview control(s) at the end.
+                while (CharacterPictureList.Count < desiredCount)
+                {
+                    int characterIndex =
+                        PageStart + CharacterPictureList.Count;
+
+                    AddCharacterToList(FontInfo.Character[characterIndex]);
+                }
+
+                // Refresh only the glyphs affected by the shift.
+                int firstLocalIndex = startIndex - PageStart;
+
+                if (firstLocalIndex < 0)
+                    firstLocalIndex = 0;
+
+                for (int localIndex = firstLocalIndex;
+                     localIndex < desiredCount;
+                     localIndex++)
+                {
+                    int characterIndex = PageStart + localIndex;
+
+                    RefreshCharacterPreview(
+                        CharacterPictureList[localIndex],
+                        FontInfo.Character[characterIndex]);
+                }
+            }
+            finally
+            {
+                FlowCharacterPanel.ResumeLayout();
+            }
+
+            ShowCharacterCount();
+            UpdatePageButtons();
+
+            // Keep the current glyph selected and refresh the large editor view.
+            int selectedLocalIndex = Index - PageStart;
+
+            if (selectedLocalIndex >= 0 &&
+                selectedLocalIndex < CharacterPictureList.Count)
+            {
+                DisplayCurrentCharacter(
+                    FontInfo.Character[Index]);
+            }
+        }
+
+
         private bool CorrectImage(Bitmap original, out Bitmap corrected)
         {
 
@@ -403,70 +640,467 @@ namespace AGS.Plugin.FontEditor
             }
         }
 
+
+        private bool UndoLastStructuralEdit()
+        {
+            if (_structuralUndoStack.Count == 0)
+                return false;
+
+            StructuralEdit edit = _structuralUndoStack.Pop();
+
+            if (edit.Type == StructuralEditType.Insert)
+            {
+                if (edit.InsertGrewArray)
+                {
+                    // Undo an insert that increased the font length:
+                    // shift everything back left and restore the old length.
+                    for (int i = edit.Index; i < edit.OldLength; i++)
+                    {
+                        FontInfo.Character[i] = FontInfo.Character[i + 1];
+                        FontInfo.Character[i].Index = i;
+                    }
+
+                    Array.Resize(ref FontInfo.Character, edit.OldLength);
+                }
+                else
+                {
+                    // Undo an insert on a full 256-slot page:
+                    // shift everything back left and restore an empty final slot.
+                    for (int i = edit.Index; i < edit.PageEnd; i++)
+                    {
+                        FontInfo.Character[i] = FontInfo.Character[i + 1];
+                        FontInfo.Character[i].Index = i;
+                    }
+
+                    CCharInfo emptyCharacter = new CCharInfo();
+                    emptyCharacter.Index = edit.PageEnd;
+                    MakeGlyphPlaceholder(emptyCharacter);
+
+                    FontInfo.Character[edit.PageEnd] = emptyCharacter;
+                }
+            }
+            else if (edit.Type == StructuralEditType.Delete)
+            {
+                // Undo Delete by shifting everything right again.
+                for (int i = edit.PageEnd; i > edit.Index; i--)
+                {
+                    FontInfo.Character[i] = FontInfo.Character[i - 1];
+                    FontInfo.Character[i].Index = i;
+                }
+
+                // Restore the glyph that was deleted.
+                FontInfo.Character[edit.Index] = edit.DeletedCharacter;
+                FontInfo.Character[edit.Index].Index = edit.Index;
+            }
+
+            else // MultiDelete
+            {
+                // Restore deleted indexes from lowest to highest.
+                // Each restoration shifts the remaining glyphs right.
+                for (int d = 0; d < edit.DeletedIndexes.Count; d++)
+                {
+                    int restoreIndex =
+                        edit.DeletedIndexes[d];
+
+                    for (int i = edit.PageEnd;
+                         i > restoreIndex;
+                         i--)
+                    {
+                        FontInfo.Character[i] =
+                            FontInfo.Character[i - 1];
+
+                        FontInfo.Character[i].Index = i;
+                    }
+
+                    FontInfo.Character[restoreIndex] =
+                        edit.DeletedCharacters[d];
+
+                    FontInfo.Character[restoreIndex].Index =
+                        restoreIndex;
+                }
+            }
+
+            // This operation can now later be Redone.
+            _structuralRedoStack.Push(edit);
+
+            FontInfo.NumberOfCharacters = FontInfo.Character.Length;
+            TxtGlyphRange.Text = FontInfo.Character.Length.ToString();
+
+            Index = edit.Index;
+
+            RefreshPageFromIndex(edit.Index);
+            UpdateGlyphTextbox();
+            CheckChange();
+
+            return true;
+        }
+
+
+        private bool RedoLastStructuralEdit()
+        {
+            if (_structuralRedoStack.Count == 0)
+                return false;
+
+            StructuralEdit edit = _structuralRedoStack.Pop();
+
+            if (edit.Type == StructuralEditType.Insert)
+            {
+                if (edit.InsertGrewArray)
+                {
+                    Array.Resize(
+                        ref FontInfo.Character,
+                        FontInfo.Character.Length + 1);
+
+                    for (int i = FontInfo.Character.Length - 1;
+                         i > edit.Index;
+                         i--)
+                    {
+                        FontInfo.Character[i] =
+                            FontInfo.Character[i - 1];
+
+                        FontInfo.Character[i].Index = i;
+                    }
+                }
+                else
+                {
+                    for (int i = edit.PageEnd; i > edit.Index; i--)
+                    {
+                        FontInfo.Character[i] =
+                            FontInfo.Character[i - 1];
+
+                        FontInfo.Character[i].Index = i;
+                    }
+                }
+
+                CCharInfo newCharacter = new CCharInfo();
+                newCharacter.Index = edit.Index;
+                MakeGlyphPlaceholder(newCharacter);
+
+                FontInfo.Character[edit.Index] = newCharacter;
+            }
+            
+            else if (edit.Type == StructuralEditType.Delete)
+            {
+                for (int i = edit.Index; i < edit.PageEnd; i++)
+                {
+                    FontInfo.Character[i] =
+                        FontInfo.Character[i + 1];
+
+                    FontInfo.Character[i].Index = i;
+                }
+
+                CCharInfo emptyCharacter = new CCharInfo();
+                emptyCharacter.Index = edit.PageEnd;
+                MakeGlyphPlaceholder(emptyCharacter);
+
+                FontInfo.Character[edit.PageEnd] = emptyCharacter;
+            }
+
+            else // MultiDelete
+            {
+                // Delete again from highest selected index to lowest.
+                for (int d = edit.DeletedIndexes.Count - 1;
+                     d >= 0;
+                     d--)
+                {
+                    int deleteIndex =
+                        edit.DeletedIndexes[d];
+
+                    for (int i = deleteIndex;
+                         i < edit.PageEnd;
+                         i++)
+                    {
+                        FontInfo.Character[i] =
+                            FontInfo.Character[i + 1];
+
+                        FontInfo.Character[i].Index = i;
+                    }
+
+                    CCharInfo emptyCharacter = new CCharInfo();
+                    emptyCharacter.Index = edit.PageEnd;
+                    MakeGlyphPlaceholder(emptyCharacter);
+
+                    FontInfo.Character[edit.PageEnd] =
+                        emptyCharacter;
+                }
+            }
+
+            _structuralUndoStack.Push(edit);
+
+            FontInfo.NumberOfCharacters = FontInfo.Character.Length;
+            TxtGlyphRange.Text = FontInfo.Character.Length.ToString();
+
+            Index = edit.Index;
+
+            RefreshPageFromIndex(edit.Index);
+            UpdateGlyphTextbox();
+            CheckChange();
+
+            return true;
+        }
+
+
+        private bool UndoLastMultiOperation()
+        {
+            if (_multiUndoStack.Count == 0)
+                return false;
+
+            // Take only the most recent grouped operation.
+            List<int> operationIndexes = _multiUndoStack.Pop();
+
+            bool anythingUndone = false;
+
+            foreach (int characterIndex in operationIndexes)
+            {
+                if (characterIndex < 0 ||
+                    characterIndex >= FontInfo.Character.Length)
+                {
+                    continue;
+                }
+
+                CCharInfo character = FontInfo.Character[characterIndex];
+
+                if (!character.UndoPossible)
+                    continue;
+
+                character.Undo();
+                anythingUndone = true;
+
+                int localIndex = characterIndex - PageStart;
+
+                if (localIndex >= 0 &&
+                    localIndex < CharacterPictureList.Count)
+                {
+                    PictureBox pict = CharacterPictureList[localIndex];
+
+                    RefreshCharacterPreview(pict, character);
+
+                    pict.ContextMenu.MenuItems[0].Enabled =
+                        character.UndoPossible;
+
+                    pict.ContextMenu.MenuItems[1].Enabled =
+                        character.RedoPossible;
+                }
+            }
+
+            if (anythingUndone)
+            {
+                // This entire grouped operation can now be redone.
+                _multiRedoStack.Push(operationIndexes);
+
+                if (Index >= 0 && Index < FontInfo.Character.Length)
+                {
+                    DisplayCurrentCharacter(FontInfo.Character[Index]);
+                }
+
+                CheckChange();
+            }
+
+            return anythingUndone;
+        }
+
+
+        private bool RedoLastMultiOperation()
+        {
+            if (_multiRedoStack.Count == 0)
+                return false;
+
+            // Take the most recently undone grouped operation.
+            List<int> operationIndexes = _multiRedoStack.Pop();
+
+            bool anythingRedone = false;
+
+            foreach (int characterIndex in operationIndexes)
+            {
+                if (characterIndex < 0 ||
+                    characterIndex >= FontInfo.Character.Length)
+                {
+                    continue;
+                }
+
+                CCharInfo character = FontInfo.Character[characterIndex];
+
+                if (!character.RedoPossible)
+                    continue;
+
+                character.Redo();
+                anythingRedone = true;
+
+                int localIndex = characterIndex - PageStart;
+
+                if (localIndex >= 0 &&
+                    localIndex < CharacterPictureList.Count)
+                {
+                    PictureBox pict = CharacterPictureList[localIndex];
+
+                    RefreshCharacterPreview(pict, character);
+
+                    pict.ContextMenu.MenuItems[0].Enabled =
+                        character.UndoPossible;
+
+                    pict.ContextMenu.MenuItems[1].Enabled =
+                        character.RedoPossible;
+                }
+            }
+
+            if (anythingRedone)
+            {
+                // The grouped operation is once again part of Undo history.
+                _multiUndoStack.Push(operationIndexes);
+
+                if (Index >= 0 && Index < FontInfo.Character.Length)
+                {
+                    DisplayCurrentCharacter(FontInfo.Character[Index]);
+                }
+
+                CheckChange();
+            }
+
+            return anythingRedone;
+        }
+
+
         void MenuUndoClicked(object sender, EventArgs e)
         {
+            if (UndoLastStructuralEdit())
+                return;
+
+            if (UndoLastMultiOperation())
+                return;
+
             MenuItem menu = (MenuItem)sender;
 
             if (menu != null)
             {
                 PictureBox picture = (PictureBox)menu.Parent.Tag;
                 CCharInfo character = (CCharInfo)(picture.Tag);
+
                 character.Undo();
                 menu.Enabled = character.UndoPossible;
 
-                Bitmap bitmap = null;
-                CFontUtils.CreateBitmap(character, out bitmap);
+                RefreshCharacterPreview(picture, character);
 
-                character.UnscaledImage = bitmap;
-                Bitmap outbmp;
-                CFontUtils.ScaleBitmap(bitmap, out outbmp, Scalefactor);
-                picture.Image = outbmp;
+                CharacterPictureList[character.Index - PageStart]
+                    .ContextMenu.MenuItems[0].Enabled = character.UndoPossible;
 
-                CharacterPictureList[character.Index - PageStart].ContextMenu.MenuItems[0].Enabled = character.UndoPossible;
-                CharacterPictureList[character.Index - PageStart].ContextMenu.MenuItems[1].Enabled = character.RedoPossible;
+                CharacterPictureList[character.Index - PageStart]
+                    .ContextMenu.MenuItems[1].Enabled = character.RedoPossible;
 
-                CreateAndShow(character, SizeMode.ChangeBoth);
+                if (character.Index == Index)
+                    DisplayCurrentCharacter(character);
+
                 CheckChange();
             }
         }
         void MenuRedoClicked(object sender, EventArgs e)
         {
+            if (RedoLastStructuralEdit())
+                return;
+
+            if (RedoLastMultiOperation())
+                return;
+
             MenuItem menu = (MenuItem)sender;
 
             if (menu != null)
             {
                 PictureBox picture = (PictureBox)menu.Parent.Tag;
                 CCharInfo character = (CCharInfo)(picture.Tag);
+
                 character.Redo();
                 menu.Enabled = character.RedoPossible;
 
-                Bitmap bitmap = null;
-                CFontUtils.CreateBitmap(character, out bitmap);
+                RefreshCharacterPreview(picture, character);
 
-                character.UnscaledImage = bitmap;
-                Bitmap outbmp;
-                CFontUtils.ScaleBitmap(bitmap, out outbmp, Scalefactor);
-                picture.Image = outbmp;
+                CharacterPictureList[character.Index - PageStart]
+                    .ContextMenu.MenuItems[0].Enabled = character.UndoPossible;
 
-                CharacterPictureList[character.Index - PageStart].ContextMenu.MenuItems[0].Enabled = character.UndoPossible;
-                CharacterPictureList[character.Index - PageStart].ContextMenu.MenuItems[1].Enabled = character.RedoPossible;
+                CharacterPictureList[character.Index - PageStart]
+                    .ContextMenu.MenuItems[1].Enabled = character.RedoPossible;
 
-                CreateAndShow(character, SizeMode.ChangeBoth);
+                if (character.Index == Index)
+                    DisplayCurrentCharacter(character);
+
                 CheckChange();
             }
         }
         void MenuCopyClicked(object sender, EventArgs e)
         {
             MenuItem menu = (MenuItem)sender;
+            if (menu == null)
+                return;
 
-            if (menu != null)
+            PictureBox clickedPicture =
+                (PictureBox)menu.Parent.Tag;
+
+            if (clickedPicture == null)
+                return;
+
+            _copiedGlyphs.Clear();
+
+            List<PictureBox> sources;
+
+            // If this glyph belongs to a multiple selection,
+            // copy the entire selection.
+            if (_selectedPreviews.Count > 1 &&
+                IsPreviewSelected(clickedPicture))
             {
-                PictureBox picture = (PictureBox)menu.Parent.Tag;
-                CCharInfo charinfo = (CCharInfo)(picture.Tag);
-                Clipboard.SetData(DataFormats.Dib, charinfo.UnscaledImage);
-
-                CheckChange();
+                sources = new List<PictureBox>(_selectedPreviews);
             }
+            else
+            {
+                sources = new List<PictureBox>();
+                sources.Add(clickedPicture);
+            }
+
+            // Always store them in index order, regardless of
+            // the order in which Ctrl-clicks were made.
+            sources.Sort(delegate (PictureBox a, PictureBox b)
+            {
+                CCharInfo ca = (CCharInfo)a.Tag;
+                CCharInfo cb = (CCharInfo)b.Tag;
+
+                return ca.Index.CompareTo(cb.Index);
+            });
+
+            foreach (PictureBox picture in sources)
+            {
+                CCharInfo character = picture.Tag as CCharInfo;
+                if (character == null)
+                    continue;
+
+                CopiedGlyph copied = new CopiedGlyph();
+
+                copied.SourceIndex = character.Index;
+                copied.Width = character.Width;
+                copied.Height = character.Height;
+
+                if (character.ByteLines != null)
+                    copied.ByteLines =
+                        (byte[])character.ByteLines.Clone();
+                else
+                    copied.ByteLines = null;
+
+                _copiedGlyphs.Add(copied);
+            }
+
+            // Keep the old Windows clipboard behavior for a normal
+            // single-glyph copy.
+            if (_copiedGlyphs.Count == 1)
+            {
+                CCharInfo character =
+                    clickedPicture.Tag as CCharInfo;
+
+                if (character != null &&
+                    character.UnscaledImage != null)
+                {
+                    Clipboard.SetData(
+                        DataFormats.Dib,
+                        character.UnscaledImage);
+                }
+            }
+
+            CheckChange();
         }
         void MenuPasteClicked(object sender, EventArgs e)
         {
@@ -481,6 +1115,150 @@ namespace AGS.Plugin.FontEditor
             CCharInfo characterinfo = (CCharInfo)(picture.Tag);
             if (characterinfo == null)
                 return;
+
+            // If we have a multi-glyph internal copy buffer,
+            // paste the whole copied selection instead of a single bitmap.
+            if (_copiedGlyphs.Count > 1)
+            {
+                int destinationStart = characterinfo.Index;
+
+                // The first copied glyph is the reference point.
+                int sourceStart = _copiedGlyphs[0].SourceIndex;
+
+                // Work out the furthest destination index.
+                int lastDestinationIndex = destinationStart;
+
+                foreach (CopiedGlyph copied in _copiedGlyphs)
+                {
+                    int relativeOffset =
+                        copied.SourceIndex - sourceStart;
+
+                    int destinationIndex =
+                        destinationStart + relativeOffset;
+
+                    if (destinationIndex > lastDestinationIndex)
+                        lastDestinationIndex = destinationIndex;
+                }
+
+                // Do not allow this paste to cross the current page's
+                // maximum of 256 index slots.
+                int pageEnd = PageStart + PageSize - 1;
+
+                if (lastDestinationIndex > pageEnd)
+                {
+                    MessageBox.Show(
+                        "Maximum page index reached!\n\nA page can contain up to 256 index slots. Please delete an index slot to make room to push the glyphs forward.",
+                        "Max index reached",
+                        MessageBoxButtons.OK,
+                        MessageBoxIcon.Warning);
+
+                    // Nothing has been changed and the copied glyphs remain
+                    // available in the internal clipboard.
+                    return;
+                }
+
+                // If the destination extends beyond the font's current range,
+                // grow the font and fill all newly created indexes with placeholders.
+                if (lastDestinationIndex >= FontInfo.Character.Length)
+                {
+                    int oldLength = FontInfo.Character.Length;
+                    int newLength = lastDestinationIndex + 1;
+
+                    Array.Resize(ref FontInfo.Character, newLength);
+
+                    for (int i = oldLength; i < newLength; i++)
+                    {
+                        CCharInfo emptyCharacter = new CCharInfo();
+                        emptyCharacter.Index = i;
+                        MakeGlyphPlaceholder(emptyCharacter);
+
+                        FontInfo.Character[i] = emptyCharacter;
+                    }
+
+                    FontInfo.NumberOfCharacters = FontInfo.Character.Length;
+                    TxtGlyphRange.Text = FontInfo.Character.Length.ToString();
+
+                    // Add only the newly required preview controls.
+                    RefreshPageFromIndex(oldLength);
+                }
+
+                List<int> changedIndexes = new List<int>();
+
+                foreach (CopiedGlyph copied in _copiedGlyphs)
+                {
+                    int relativeOffset =
+                        copied.SourceIndex - sourceStart;
+
+                    int destinationIndex =
+                        destinationStart + relativeOffset;
+
+                    CCharInfo target =
+                        FontInfo.Character[destinationIndex];
+
+                    // Save the old destination state for Undo.
+                    target.UndoRedoListTidyUp();
+                    target.UndoRedoListAdd(target.ByteLines);
+
+                    // Apply the copied glyph.
+                    target.Width = copied.Width;
+                    target.Height = copied.Height;
+
+                    if (copied.ByteLines != null)
+                        target.ByteLines = (byte[])copied.ByteLines.Clone();
+                    else
+                        target.ByteLines = null;
+
+                    target.UnscaledImage = null;
+
+                    // Save the new state for Redo.
+                    target.UndoRedoListAdd(target.ByteLines);
+
+                    changedIndexes.Add(destinationIndex);
+
+                    int targetLocalIndex = destinationIndex - PageStart;
+
+                    if (targetLocalIndex >= 0 &&
+                        targetLocalIndex < CharacterPictureList.Count)
+                    {
+                        PictureBox targetPicture =
+                            CharacterPictureList[targetLocalIndex];
+
+                        RefreshCharacterPreview(
+                            targetPicture,
+                            target);
+
+                        targetPicture.ContextMenu.MenuItems[0].Enabled =
+                            target.UndoPossible;
+
+                        targetPicture.ContextMenu.MenuItems[1].Enabled =
+                            target.RedoPossible;
+                    }
+                }
+
+                // Treat the whole paste as one Undo/Redo operation.
+                if (changedIndexes.Count > 0)
+                {
+                    _multiUndoStack.Push(changedIndexes);
+                    _multiRedoStack.Clear();
+                }
+
+                // The destination-start glyph becomes the active glyph.
+                Index = destinationStart;
+
+                SelectOnlyPreview(picture);
+                DisplayCurrentCharacter(
+                    FontInfo.Character[destinationStart]);
+
+                UpdateGlyphTextbox();
+                CheckChange();
+
+                return;
+            }
+
+            // Make sure the current glyph state exists in Undo history
+            // before Paste replaces it.
+            characterinfo.UndoRedoListTidyUp();
+            characterinfo.UndoRedoListAdd(characterinfo.ByteLines);
 
             // Grab clipboard image safely
             Image clipImg = Clipboard.GetImage();
@@ -560,7 +1338,203 @@ namespace AGS.Plugin.FontEditor
         }
 
 
+        public bool CopySelectedGlyph()
+        {
+            if (_selectedPreview == null || _selectedPreview.ContextMenu == null)
+                return false;
+
+            _selectedPreview.ContextMenu.MenuItems[2].PerformClick();
+            return true;
+        }
+
+        public bool PasteSelectedGlyph()
+        {
+            if (_selectedPreview == null || _selectedPreview.ContextMenu == null)
+                return false;
+
+            _selectedPreview.ContextMenu.MenuItems[3].PerformClick();
+            return true;
+        }
+
+        public bool RemoveSelectedGlyphData()
+        {
+            if (_selectedPreview == null ||
+                _selectedPreview.ContextMenu == null)
+            {
+                return false;
+            }
+
+            _selectedPreview.ContextMenu.MenuItems[5].PerformClick();
+            return true;
+        }
+
+        public bool InsertGlyphAtSelected()
+        {
+            if (_selectedPreview == null ||
+                _selectedPreview.ContextMenu == null)
+            {
+                return false;
+            }
+
+            _selectedPreview.ContextMenu.MenuItems[7].PerformClick();
+            return true;
+        }
+
+        public bool DeleteSelectedGlyph()
+        {
+            if (_selectedPreview == null ||
+                _selectedPreview.ContextMenu == null)
+            {
+                return false;
+            }
+
+            _selectedPreview.ContextMenu.MenuItems[8].PerformClick();
+            return true;
+        }
+
+        public bool UndoSelectedGlyph()
+        {
+            if (_selectedPreview == null || _selectedPreview.ContextMenu == null)
+                return false;
+
+            if (!_selectedPreview.ContextMenu.MenuItems[0].Enabled &&
+                _multiUndoStack.Count == 0 &&
+                _structuralUndoStack.Count == 0)
+            {
+                return false;
+            }
+
+            _selectedPreview.ContextMenu.MenuItems[0].PerformClick();
+            return true;
+        }
+
+        public bool RedoSelectedGlyph()
+        {
+            if (_selectedPreview == null || _selectedPreview.ContextMenu == null)
+                return false;
+
+            if (!_selectedPreview.ContextMenu.MenuItems[1].Enabled &&
+                _multiRedoStack.Count == 0 &&
+                _structuralRedoStack.Count == 0)
+            {
+                return false;
+            }
+
+            _selectedPreview.ContextMenu.MenuItems[1].PerformClick();
+            return true;
+        }
+
+
         private void MenuRemoveGlyphDataClicked(object sender, EventArgs e)
+        {
+            MenuItem menu = sender as MenuItem;
+            if (menu == null)
+                return;
+
+            PictureBox clickedPicture = menu.Parent.Tag as PictureBox;
+            if (clickedPicture == null)
+                return;
+
+            // Keep track of the original active glyph shown on the canvas.
+            PictureBox activePreview = _selectedPreview;
+
+            // Decide which glyphs this operation should affect.
+            List<PictureBox> targets;
+
+            if (_selectedPreviews.Count > 1 &&
+                IsPreviewSelected(clickedPicture))
+            {
+                targets = new List<PictureBox>(_selectedPreviews);
+            }
+            else
+            {
+                targets = new List<PictureBox>();
+                targets.Add(clickedPicture);
+            }
+
+            // Remember which glyphs actually changed, so Undo/Redo
+            // can treat a multi-glyph remove as one grouped operation.
+            List<int> changedIndexes = new List<int>();
+
+            foreach (PictureBox pict in targets)
+            {
+                CCharInfo character = pict.Tag as CCharInfo;
+                if (character == null)
+                    continue;
+
+                bool hadData =
+                    character.Width != 0 ||
+                    character.Height != 0 ||
+                    character.ByteLines != null;
+
+                // Turn the glyph into a true empty placeholder.
+                character.Width = 0;
+                character.Height = 0;
+                character.ByteLines = null;
+                character.UnscaledImage = null;
+
+                // Record this new empty state in the glyph's own
+                // Undo/Redo history.
+                character.UndoRedoListTidyUp();
+                character.UndoRedoListAdd(character.ByteLines);
+
+                if (hadData)
+                    changedIndexes.Add(character.Index);
+
+                // Refresh only this preview.
+                RefreshCharacterPreview(pict, character);
+
+                // Update this glyph's own Undo/Redo menu state.
+                if (pict.ContextMenu != null)
+                {
+                    pict.ContextMenu.MenuItems[0].Enabled =
+                        character.UndoPossible;
+
+                    pict.ContextMenu.MenuItems[1].Enabled =
+                        character.RedoPossible;
+                }
+            }
+
+            // If more than one glyph was affected, remember the whole
+            // operation as one grouped Undo action.
+            if (targets.Count > 1 && changedIndexes.Count > 0)
+            {
+                _multiUndoStack.Push(changedIndexes);
+
+                // A new edit invalidates any grouped Redo history.
+                _multiRedoStack.Clear();
+            }
+            else
+            {
+                // Single-glyph edit becomes the newest operation,
+                // so any older grouped history is no longer current.
+                _multiUndoStack.Clear();
+                _multiRedoStack.Clear();
+            }
+
+            // Restore the original active glyph on the canvas.
+            if (activePreview != null)
+            {
+                CCharInfo activeCharacter = activePreview.Tag as CCharInfo;
+
+                if (activeCharacter != null)
+                {
+                    _selectedPreview = activePreview;
+                    _selectionAnchor = activePreview;
+
+                    DisplayCurrentCharacter(activeCharacter);
+                }
+            }
+
+            // Keep all selected glyphs visibly highlighted.
+            foreach (PictureBox pict in _selectedPreviews)
+                pict.Invalidate();
+
+            CheckChange();
+        }
+
+
+        private void MenuInsertGlyphClicked(object sender, EventArgs e)
         {
             MenuItem menu = sender as MenuItem;
             if (menu == null)
@@ -570,53 +1544,250 @@ namespace AGS.Plugin.FontEditor
             if (pict == null)
                 return;
 
-            CCharInfo character = pict.Tag as CCharInfo;
-            if (character == null)
+            CCharInfo selectedCharacter = pict.Tag as CCharInfo;
+            if (selectedCharacter == null)
                 return;
 
-            // 🔴 Convert glyph to placeholder (no size, no bitmap)
-            character.Width = 0;
-            character.Height = 0;
-            character.WidthOriginal = 0;
-            character.HeightOriginal = 0;
-            character.ByteLines = null;
-            character.ByteLinesOriginal = null;
-            character.UnscaledImage = null;
+            // Insert should act only on the clicked glyph,
+            // not on an existing multi-selection.
+            SelectOnlyPreview(pict);
 
-            // 🔵 Recreate ONLY this preview box
-            int previewW = 8 * Scalefactor;
-            int previewH = 9 * Scalefactor;
+            int insertIndex = selectedCharacter.Index;
 
-            Bitmap placeholder = new Bitmap(previewW, previewH);
-            using (Graphics g = Graphics.FromImage(placeholder))
+            int oldLength = FontInfo.Character.Length;
+            int pageEndExclusive = Math.Min(PageStart + PageSize, oldLength);
+            int glyphsOnPage = pageEndExclusive - PageStart;
+
+            StructuralEdit edit = new StructuralEdit();
+            edit.Type = StructuralEditType.Insert;
+            edit.Index = insertIndex;
+            edit.OldLength = oldLength;
+
+            // If this page already contains all 256 slots,
+            // the final slot must be empty.
+            if (glyphsOnPage >= PageSize)
             {
-                g.Clear(XmlSettings.Color);
+                int pageEnd = PageStart + PageSize - 1;
+                CCharInfo lastCharacter = FontInfo.Character[pageEnd];
 
-                using (Pen pen = new Pen(Color.White))
+                if (lastCharacter != null &&
+                    lastCharacter.Width != 0 &&
+                    lastCharacter.Height != 0)
                 {
-                    g.DrawRectangle(pen, 0, 0, previewW - 1, previewH - 1);
+                    MessageBox.Show(
+                        "Maximum page index reached!\n\nA page can contain up to 256 index slots. Please delete an index slot to make room to push the glyphs forward.",
+                        "Max index reached",
+                        MessageBoxButtons.OK,
+                        MessageBoxIcon.Warning);
+
+                    return;
+                }
+
+                edit.InsertGrewArray = false;
+                edit.PageEnd = pageEnd;
+
+                // Shift everything one index forward within this page.
+                for (int i = pageEnd; i > insertIndex; i--)
+                {
+                    FontInfo.Character[i] = FontInfo.Character[i - 1];
+                    FontInfo.Character[i].Index = i;
+                }
+            }
+            else
+            {
+                // Partial page: grow the font by one index.
+                edit.InsertGrewArray = true;
+                edit.PageEnd = oldLength;
+
+                Array.Resize(ref FontInfo.Character, oldLength + 1);
+
+                for (int i = oldLength; i > insertIndex; i--)
+                {
+                    FontInfo.Character[i] = FontInfo.Character[i - 1];
+                    FontInfo.Character[i].Index = i;
                 }
             }
 
-            pict.Image = placeholder;
-            pict.Width = previewW;
-            pict.Height = previewH;
-            pict.Invalidate();
+            // Create the new empty glyph.
+            CCharInfo newCharacter = new CCharInfo();
+            newCharacter.Index = insertIndex;
+            MakeGlyphPlaceholder(newCharacter);
 
-            // ✅ If this glyph is currently selected → refresh drawing area
-            if (character.Index == Index)
-            {
-                DisplayCurrentCharacter(character);
-            }
+            FontInfo.Character[insertIndex] = newCharacter;
 
-            // 🔵 Make this glyph the active selection
-            Index = character.Index;
+            // Remember this structural operation for Undo.
+            _structuralUndoStack.Push(edit);
+
+            // A new operation invalidates structural Redo history.
+            _structuralRedoStack.Clear();
+
+            FontInfo.NumberOfCharacters = FontInfo.Character.Length;
+            TxtGlyphRange.Text = FontInfo.Character.Length.ToString();
+
+            Index = insertIndex;
+
+            RefreshPageFromIndex(insertIndex);
             UpdateGlyphTextbox();
 
-            // Visually select it (same behavior as left-click)
-            Character_Click(pict, new MouseEventArgs(MouseButtons.Left, 1, 0, 0, 0));
-
             CheckChange();
+            MarkFontModified();
+        }
+
+
+        private void MenuDeleteGlyphClicked(object sender, EventArgs e)
+        {
+            MenuItem menu = sender as MenuItem;
+            if (menu == null)
+                return;
+
+            PictureBox clickedPicture = menu.Parent.Tag as PictureBox;
+            if (clickedPicture == null)
+                return;
+
+            CCharInfo clickedCharacter = clickedPicture.Tag as CCharInfo;
+            if (clickedCharacter == null)
+                return;
+
+            int pageEnd =
+                Math.Min(PageStart + PageSize, FontInfo.Character.Length) - 1;
+
+            if (pageEnd < PageStart)
+                return;
+
+            // MULTIPLE SELECTION
+            if (_selectedPreviews.Count > 1 &&
+                IsPreviewSelected(clickedPicture))
+            {
+                List<int> deleteIndexes = new List<int>();
+
+                foreach (PictureBox pict in _selectedPreviews)
+                {
+                    CCharInfo character = pict.Tag as CCharInfo;
+
+                    if (character != null)
+                        deleteIndexes.Add(character.Index);
+                }
+
+                deleteIndexes.Sort();
+
+                if (deleteIndexes.Count == 0)
+                    return;
+
+                StructuralEdit edit = new StructuralEdit();
+
+                edit.Type = StructuralEditType.MultiDelete;
+                edit.Index = deleteIndexes[0];
+                edit.PageEnd = pageEnd;
+                edit.OldLength = FontInfo.Character.Length;
+
+                edit.DeletedIndexes =
+                    new List<int>(deleteIndexes);
+
+                edit.DeletedCharacters =
+                    new List<CCharInfo>();
+
+                // Store the actual glyph objects in the same ascending order.
+                foreach (int deleteIndex in deleteIndexes)
+                {
+                    edit.DeletedCharacters.Add(
+                        FontInfo.Character[deleteIndex]);
+                }
+
+                // Delete from highest index to lowest index.
+                // This prevents earlier deletions from changing the positions
+                // of indexes we still need to delete.
+                for (int d = deleteIndexes.Count - 1; d >= 0; d--)
+                {
+                    int deleteIndex = deleteIndexes[d];
+
+                    for (int i = deleteIndex; i < pageEnd; i++)
+                    {
+                        FontInfo.Character[i] =
+                            FontInfo.Character[i + 1];
+
+                        FontInfo.Character[i].Index = i;
+                    }
+
+                    CCharInfo emptyCharacter = new CCharInfo();
+                    emptyCharacter.Index = pageEnd;
+                    MakeGlyphPlaceholder(emptyCharacter);
+
+                    FontInfo.Character[pageEnd] = emptyCharacter;
+                }
+
+                _structuralUndoStack.Push(edit);
+                _structuralRedoStack.Clear();
+
+                Index = deleteIndexes[0];
+
+                // The old multi-selection no longer refers to the same glyphs.
+                ClearPreviewSelection();
+
+                RefreshPageFromIndex(Index);
+
+                int localIndex = Index - PageStart;
+
+                if (localIndex >= 0 &&
+                    localIndex < CharacterPictureList.Count)
+                {
+                    PictureBox newActive =
+                        CharacterPictureList[localIndex];
+
+                    SelectOnlyPreview(newActive);
+
+                    CCharInfo activeCharacter =
+                        newActive.Tag as CCharInfo;
+
+                    if (activeCharacter != null)
+                        DisplayCurrentCharacter(activeCharacter);
+                }
+
+                UpdateGlyphTextbox();
+                CheckChange();
+                MarkFontModified();
+
+                return;
+            }
+
+            // NORMAL SINGLE-GLYPH DELETE
+            int singleDeleteIndex = clickedCharacter.Index;
+
+            if (pageEnd < singleDeleteIndex)
+                return;
+
+            StructuralEdit singleEdit = new StructuralEdit();
+
+            singleEdit.Type = StructuralEditType.Delete;
+            singleEdit.Index = singleDeleteIndex;
+            singleEdit.PageEnd = pageEnd;
+            singleEdit.OldLength = FontInfo.Character.Length;
+
+            singleEdit.DeletedCharacter =
+                FontInfo.Character[singleDeleteIndex];
+
+            for (int i = singleDeleteIndex; i < pageEnd; i++)
+            {
+                FontInfo.Character[i] =
+                    FontInfo.Character[i + 1];
+
+                FontInfo.Character[i].Index = i;
+            }
+
+            CCharInfo finalEmptyCharacter = new CCharInfo();
+            finalEmptyCharacter.Index = pageEnd;
+            MakeGlyphPlaceholder(finalEmptyCharacter);
+
+            FontInfo.Character[pageEnd] = finalEmptyCharacter;
+
+            _structuralUndoStack.Push(singleEdit);
+            _structuralRedoStack.Clear();
+
+            Index = singleDeleteIndex;
+
+            RefreshPageFromIndex(singleDeleteIndex);
+            UpdateGlyphTextbox();
+            CheckChange();
+            MarkFontModified();
         }
 
 
@@ -648,33 +1819,212 @@ namespace AGS.Plugin.FontEditor
             }
         }
 
+
+        private void CollapseSelectionToActiveGlyph()
+        {
+            if (_selectedPreview == null)
+                return;
+
+            if (_selectedPreviews.Count <= 1)
+                return;
+
+            PictureBox activePreview = _selectedPreview;
+
+            ClearPreviewSelection();
+            AddPreviewToSelection(activePreview);
+
+            _selectedPreview = activePreview;
+            _selectionAnchor = activePreview;
+        }
+
+        private bool IsPreviewSelected(PictureBox pict)
+        {
+            return _selectedPreviews.Contains(pict);
+        }
+
+        private void ClearPreviewSelection()
+        {
+            foreach (PictureBox pict in _selectedPreviews)
+            {
+                pict.BackColor = FlowCharacterPanel.BackColor;
+                pict.Invalidate();
+            }
+
+            _selectedPreviews.Clear();
+        }
+
+        private void AddPreviewToSelection(PictureBox pict)
+        {
+            if (pict == null)
+                return;
+
+            if (!_selectedPreviews.Contains(pict))
+                _selectedPreviews.Add(pict);
+
+            pict.BackColor = Color.FromArgb(80, 120, 200);
+            pict.Invalidate();
+        }
+
+        private void RemovePreviewFromSelection(PictureBox pict)
+        {
+            if (pict == null)
+                return;
+
+            _selectedPreviews.Remove(pict);
+
+            pict.BackColor = FlowCharacterPanel.BackColor;
+            pict.Invalidate();
+        }
+
+        private void SelectOnlyPreview(PictureBox pict)
+        {
+            ClearPreviewSelection();
+
+            AddPreviewToSelection(pict);
+
+            _selectedPreview = pict;
+            _selectionAnchor = pict;
+        }
+
+        private void SelectPreviewRange(PictureBox from, PictureBox to)
+        {
+            if (from == null || to == null)
+                return;
+
+            int fromIndex = CharacterPictureList.IndexOf(from);
+            int toIndex = CharacterPictureList.IndexOf(to);
+
+            if (fromIndex < 0 || toIndex < 0)
+                return;
+
+            int first = Math.Min(fromIndex, toIndex);
+            int last = Math.Max(fromIndex, toIndex);
+
+            ClearPreviewSelection();
+
+            for (int i = first; i <= last; i++)
+                AddPreviewToSelection(CharacterPictureList[i]);
+        }
+
+
+        void Character_MouseDown(object sender, MouseEventArgs e)
+        {
+            if (e.Button != MouseButtons.Right)
+                return;
+
+            PictureBox picture = (PictureBox)sender;
+            CCharInfo characterinfo = (CCharInfo)picture.Tag;
+            ContextMenu menu = picture.ContextMenu;
+
+            if (!IsPreviewSelected(picture))
+            {
+                // Right-click outside the selection:
+                // discard the multi-selection and select this glyph normally.
+                SelectOnlyPreview(picture);
+                DisplayCurrentCharacter(characterinfo);
+            }
+
+            // Update Undo/Redo BEFORE the context menu opens.
+            if (menu != null)
+            {
+                menu.MenuItems[0].Enabled =
+                    characterinfo.UndoPossible ||
+                    _multiUndoStack.Count > 0 ||
+                    _structuralUndoStack.Count > 0;
+
+                menu.MenuItems[1].Enabled =
+                    characterinfo.RedoPossible ||
+                    _multiRedoStack.Count > 0 ||
+                    _structuralRedoStack.Count > 0;
+            }
+
+            // If right-clicking anywhere inside the existing selection,
+            // keep the whole selection and keep the original active glyph
+            // on the canvas.
+        }
+
+
         void Character_Click(object sender, EventArgs e)
         {
             MouseEventArgs mouse = (MouseEventArgs)e;
             PictureBox picture = (PictureBox)sender;
-            CCharInfo characterinfo = (CCharInfo)(picture.Tag);
+            CCharInfo characterinfo = (CCharInfo)picture.Tag;
             ContextMenu menu = (ContextMenu)picture.ContextMenu;
-
-            // Remove highlight from previously selected preview
-            if (_selectedPreview != null)
-            {
-                _selectedPreview.BackColor = FlowCharacterPanel.BackColor;
-            }
-
-            // Highlight current preview
-            _selectedPreview = picture;
-            _selectedPreview.BackColor = Color.FromArgb(80, 120, 200); // subtle blue
 
             switch (mouse.Button)
             {
                 case MouseButtons.Left:
-                    DisplayCurrentCharacter(characterinfo);
-                    break;
+                    {
+                        bool ctrl =
+                            (Control.ModifierKeys & Keys.Control) == Keys.Control;
+
+                        bool shift =
+                            (Control.ModifierKeys & Keys.Shift) == Keys.Shift;
+
+                        if (shift && _selectionAnchor != null)
+                        {
+                            // Shift-click changes the range selection,
+                            // but keeps the original anchor glyph active on the canvas.
+                            SelectPreviewRange(_selectionAnchor, picture);
+                        }
+                        else if (ctrl)
+                        {
+                            // Ctrl-click toggles individual glyphs without changing
+                            // the active glyph shown on the canvas.
+                            if (IsPreviewSelected(picture))
+                            {
+                                RemovePreviewFromSelection(picture);
+
+                                // If the user deselected the active/anchor glyph,
+                                // promote another selected glyph to become the new anchor.
+                                if (picture == _selectionAnchor)
+                                {
+                                    if (_selectedPreviews.Count > 0)
+                                    {
+                                        _selectionAnchor = _selectedPreviews[0];
+                                        _selectedPreview = _selectionAnchor;
+
+                                        CCharInfo newActive =
+                                            (CCharInfo)_selectedPreview.Tag;
+
+                                        DisplayCurrentCharacter(newActive);
+                                    }
+                                    else
+                                    {
+                                        // Nothing remains selected, so select this glyph again.
+                                        SelectOnlyPreview(picture);
+                                        DisplayCurrentCharacter(characterinfo);
+                                    }
+                                }
+                            }
+                            else
+                            {
+                                AddPreviewToSelection(picture);
+
+                                // Do NOT change _selectedPreview or _selectionAnchor.
+                                // The original glyph stays on the canvas.
+                            }
+                        }
+                        else
+                        {
+                            // Ordinary click starts a completely new selection
+                            // and makes this the active canvas glyph.
+                            SelectOnlyPreview(picture);
+                            DisplayCurrentCharacter(characterinfo);
+                        }
+
+                        break;
+                    }
 
                 case MouseButtons.Right:
-                    menu.MenuItems[0].Enabled = characterinfo.UndoPossible;
-                    menu.MenuItems[1].Enabled = characterinfo.RedoPossible;
-                    break;
+                    {
+                        menu.MenuItems[0].Enabled =
+                            characterinfo.UndoPossible ||
+                            _multiUndoStack.Count > 0;
+
+                        menu.MenuItems[1].Enabled = characterinfo.RedoPossible;
+                        break;
+                    }
             }
         }
 
@@ -1073,6 +2423,13 @@ namespace AGS.Plugin.FontEditor
             DrawingArea.Size = drawingbitmap.Size;
             DrawingArea.Image = drawingbitmap;
         }
+
+
+        private void NumSize_MouseDown(object sender, MouseEventArgs e)
+        {
+            CollapseSelectionToActiveGlyph();
+        }
+
 
         private void numWidth_ValueChanged(object sender, EventArgs e)
         {
@@ -1561,12 +2918,19 @@ namespace AGS.Plugin.FontEditor
                 character.ByteLines = new byte[character.Height * bytesPerLine];
             }
 
-            // Clear bitmap data (all black)
-            for (int i = 0; i < character.ByteLines.Length; i++)
-                character.ByteLines[i] = 0x00;
+            // Create a new cleared bitmap buffer instead of modifying
+            // the existing ByteLines array in place. This preserves
+            // the previous array stored in the Undo history.
+            character.ByteLines = new byte[character.ByteLines.Length];
 
             character.UndoRedoListTidyUp();
             character.UndoRedoListAdd(character.ByteLines);
+
+            CharacterPictureList[character.Index - PageStart]
+                .ContextMenu.MenuItems[0].Enabled = character.UndoPossible;
+
+            CharacterPictureList[character.Index - PageStart]
+                .ContextMenu.MenuItems[1].Enabled = character.RedoPossible;
 
             CreateAndShow(character, SizeMode.ChangeNothing);
             CheckChange();
@@ -1596,10 +2960,14 @@ namespace AGS.Plugin.FontEditor
                 character.ByteLines = new byte[character.Height * bytesPerLine];
             }
 
-            for (int i = 0; i < character.ByteLines.Length; i++)
+            byte[] filled = new byte[character.ByteLines.Length];
+
+            for (int i = 0; i < filled.Length; i++)
             {
-                character.ByteLines[i] = 0xFF;
+                filled[i] = 0xFF;
             }
+
+            character.ByteLines = filled;
 
             character.UndoRedoListTidyUp();
             character.UndoRedoListAdd(character.ByteLines);
@@ -1745,58 +3113,179 @@ namespace AGS.Plugin.FontEditor
         }
         #endregion Character functions
 
+
+        private void CharacterFunctionAllAsGrouped(Action<CCharInfo> function)
+        {
+            List<int> changedIndexes = new List<int>();
+
+            foreach (PictureBox item in CharacterPictureList)
+            {
+                CCharInfo character = (CCharInfo)item.Tag;
+
+                UInt16 oldWidth = character.Width;
+                UInt16 oldHeight = character.Height;
+
+                byte[] oldBytes = null;
+                if (character.ByteLines != null)
+                    oldBytes = (byte[])character.ByteLines.Clone();
+
+                function(character);
+
+                bool changed =
+                    oldWidth != character.Width ||
+                    oldHeight != character.Height ||
+                    !ArraysEqual(oldBytes, character.ByteLines);
+
+                if (changed)
+                    changedIndexes.Add(character.Index);
+            }
+
+            if (changedIndexes.Count > 0)
+            {
+                _multiUndoStack.Push(changedIndexes);
+                _multiRedoStack.Clear();
+            }
+
+            if (_selectedPreview != null)
+            {
+                CCharInfo activeCharacter =
+                    (CCharInfo)_selectedPreview.Tag;
+
+                DisplayCurrentCharacter(activeCharacter);
+            }
+        }
+
+
+        private void CharacterFunctionSelectionOrOneOrAll(
+        Action<CCharInfo> function,
+        bool onechar)
+        {
+            if (_selectedPreviews.Count > 1)
+            {
+                PictureBox activePreview = _selectedPreview;
+
+                List<PictureBox> selected =
+                    new List<PictureBox>(_selectedPreviews);
+
+                List<int> changedIndexes = new List<int>();
+
+                foreach (PictureBox item in selected)
+                {
+                    CCharInfo character = (CCharInfo)item.Tag;
+
+                    // Remember the bitmap data before the operation.
+                    byte[] before = null;
+
+                    if (character.ByteLines != null)
+                        before = (byte[])character.ByteLines.Clone();
+
+                    function(character);
+
+                    // Only remember glyphs that were genuinely changed.
+                    if (!ArraysEqual(before, character.ByteLines))
+                        changedIndexes.Add(character.Index);
+                }
+
+                // Remember this group independently of the visual selection.
+                if (changedIndexes.Count > 0)
+                {
+                    _multiUndoStack.Push(changedIndexes);
+
+                    // A new edit invalidates anything that had previously been undone.
+                    _multiRedoStack.Clear();
+                }
+
+                // Restore the original active glyph on the canvas.
+                if (activePreview != null)
+                {
+                    CCharInfo activeCharacter =
+                        (CCharInfo)activePreview.Tag;
+
+                    DisplayCurrentCharacter(activeCharacter);
+                }
+
+                return;
+            }
+
+            // A new non-multi operation replaces the previous grouped operation.
+            _multiUndoStack.Clear();
+            _multiRedoStack.Clear();
+
+            CharacterFunctionOneOrAll(function, onechar);
+        }
+
+
         private void BtnClear_Click(object sender, EventArgs e)
         {
-            CharacterFunctionOneOrAll(ClearCharacter, ChkOneAllCharacters.Checked);
+            CharacterFunctionSelectionOrOneOrAll(
+                ClearCharacter,
+                ChkOneAllCharacters.Checked);
         }
 
         private void BtnFill_Click(object sender, EventArgs e)
         {
-            CharacterFunctionOneOrAll(FillCharacter, ChkOneAllCharacters.Checked);
-        }
-
-        private void BtnShiftUp_Click(object sender, EventArgs e)
-        {
-            CharacterFunctionOneOrAll(ShiftUpCharacter, ChkOneAllCharacters.Checked);
-        }
-
-        private void BtnShiftDown_Click(object sender, EventArgs e)
-        {
-            CharacterFunctionOneOrAll(ShiftDownCharacter, ChkOneAllCharacters.Checked);
-        }
-
-        private void BtnShiftLeft_Click(object sender, EventArgs e)
-        {
-            CharacterFunctionOneOrAll(ShiftLeftCharacter, ChkOneAllCharacters.Checked);
-        }
-
-        private void BtnShiftRight_Click(object sender, EventArgs e)
-        {
-            CharacterFunctionOneOrAll(ShiftRightCharacter, ChkOneAllCharacters.Checked);
-        }
-
-        private void BtnInvert_Click(object sender, EventArgs e)
-        {
-            CharacterFunctionOneOrAll(InvertCharacter, ChkOneAllCharacters.Checked);
+            CharacterFunctionSelectionOrOneOrAll(
+                FillCharacter,
+                ChkOneAllCharacters.Checked);
         }
 
         private void BtnSwapHorizontally_Click(object sender, EventArgs e)
         {
-            CharacterFunctionOneOrAll(SwapHorizontallyCharacter, ChkOneAllCharacters.Checked);
+            CharacterFunctionSelectionOrOneOrAll(
+                SwapHorizontallyCharacter,
+                ChkOneAllCharacters.Checked);
         }
 
         private void BtnSwapVertically_Click(object sender, EventArgs e)
         {
-            CharacterFunctionOneOrAll(SwapVerticallyCharacter, ChkOneAllCharacters.Checked);
+            CharacterFunctionSelectionOrOneOrAll(
+                SwapVerticallyCharacter,
+                ChkOneAllCharacters.Checked);
         }
+
+        private void BtnShiftUp_Click(object sender, EventArgs e)
+        {
+            CharacterFunctionSelectionOrOneOrAll(
+                ShiftUpCharacter,
+                ChkOneAllCharacters.Checked);
+        }
+
+        private void BtnShiftDown_Click(object sender, EventArgs e)
+        {
+            CharacterFunctionSelectionOrOneOrAll(
+                ShiftDownCharacter,
+                ChkOneAllCharacters.Checked);
+        }
+
+        private void BtnShiftLeft_Click(object sender, EventArgs e)
+        {
+            CharacterFunctionSelectionOrOneOrAll(
+                ShiftLeftCharacter,
+                ChkOneAllCharacters.Checked);
+        }
+
+        private void BtnShiftRight_Click(object sender, EventArgs e)
+        {
+            CharacterFunctionSelectionOrOneOrAll(
+                ShiftRightCharacter,
+                ChkOneAllCharacters.Checked);
+        }
+
+        private void BtnInvert_Click(object sender, EventArgs e)
+        {
+            CharacterFunctionSelectionOrOneOrAll(InvertCharacter, ChkOneAllCharacters.Checked);
+        }
+
 
         private void BtnOutline_Click(object sender, EventArgs e)
         {
-            CharacterFunctionOneOrAll(OutlineCharacter, ChkOneAllCharacters.Checked);
+            CharacterFunctionSelectionOrOneOrAll(OutlineCharacter, ChkOneAllCharacters.Checked);
         }
         private void BtnOutlineFont_Click(object sender, EventArgs e)
         {
-            CharacterFunctionOneOrAll(OutlineCharacter, true); // Outline the whole font
+            CollapseSelectionToActiveGlyph();
+
+            CharacterFunctionAllAsGrouped(OutlineCharacter);
         }
         private void BtnRenderText_Click(object sender, EventArgs e)
         {
@@ -1878,8 +3367,13 @@ namespace AGS.Plugin.FontEditor
         }
         private async void BtnAllHeight_Click(object sender, EventArgs e)
         {
+            CollapseSelectionToActiveGlyph();
+
             _bulkUpdate = true;
             FlowCharacterPanel.SuspendLayout();
+
+            List<int> changedIndexes = new List<int>();
+
             try
             {
                 foreach (PictureBox item in CharacterPictureList)
@@ -1891,7 +3385,38 @@ namespace AGS.Plugin.FontEditor
                         if (character.UnscaledImage == null)
                             continue;
 
+                        UInt16 oldWidth = character.Width;
+                        UInt16 oldHeight = character.Height;
+
+                        byte[] oldBytes = null;
+                        if (character.ByteLines != null)
+                            oldBytes = (byte[])character.ByteLines.Clone();
+
+                        // Make sure the current state is in this glyph's history
+                        // before changing its height.
+                        character.UndoRedoListTidyUp();
+                        character.UndoRedoListAdd(character.ByteLines);
+
                         CreateAndShow(character, SizeMode.ChangeHeight);
+
+                        bool changed =
+                            oldWidth != character.Width ||
+                            oldHeight != character.Height ||
+                            !ArraysEqual(oldBytes, character.ByteLines);
+
+                        if (changed)
+                        {
+                            // Store the new resized state too.
+                            character.UndoRedoListAdd(character.ByteLines);
+
+                            changedIndexes.Add(character.Index);
+
+                            item.ContextMenu.MenuItems[0].Enabled =
+                                character.UndoPossible;
+
+                            item.ContextMenu.MenuItems[1].Enabled =
+                                character.RedoPossible;
+                        }
                     }
 
                     await Task.Yield();
@@ -1901,6 +3426,20 @@ namespace AGS.Plugin.FontEditor
             {
                 FlowCharacterPanel.ResumeLayout();
                 _bulkUpdate = false;
+            }
+
+            if (changedIndexes.Count > 0)
+            {
+                _multiUndoStack.Push(changedIndexes);
+                _multiRedoStack.Clear();
+            }
+
+            if (_selectedPreview != null)
+            {
+                CCharInfo activeCharacter =
+                    (CCharInfo)_selectedPreview.Tag;
+
+                DisplayCurrentCharacter(activeCharacter);
             }
 
             CheckChange();
@@ -1908,8 +3447,13 @@ namespace AGS.Plugin.FontEditor
 
         private async void BtnAllWidth_Click(object sender, EventArgs e)
         {
+            CollapseSelectionToActiveGlyph();
+
             _bulkUpdate = true;
             FlowCharacterPanel.SuspendLayout();
+
+            List<int> changedIndexes = new List<int>();
+
             try
             {
                 foreach (PictureBox item in CharacterPictureList)
@@ -1921,7 +3465,38 @@ namespace AGS.Plugin.FontEditor
                         if (character.UnscaledImage == null)
                             continue;
 
+                        UInt16 oldWidth = character.Width;
+                        UInt16 oldHeight = character.Height;
+
+                        byte[] oldBytes = null;
+                        if (character.ByteLines != null)
+                            oldBytes = (byte[])character.ByteLines.Clone();
+
+                        // Make sure the current state is in this glyph's history
+                        // before changing its width.
+                        character.UndoRedoListTidyUp();
+                        character.UndoRedoListAdd(character.ByteLines);
+
                         CreateAndShow(character, SizeMode.ChangeWidth);
+
+                        bool changed =
+                            oldWidth != character.Width ||
+                            oldHeight != character.Height ||
+                            !ArraysEqual(oldBytes, character.ByteLines);
+
+                        if (changed)
+                        {
+                            // Store the new resized state too.
+                            character.UndoRedoListAdd(character.ByteLines);
+
+                            changedIndexes.Add(character.Index);
+
+                            item.ContextMenu.MenuItems[0].Enabled =
+                                character.UndoPossible;
+
+                            item.ContextMenu.MenuItems[1].Enabled =
+                                character.RedoPossible;
+                        }
                     }
 
                     await Task.Yield();
@@ -1933,14 +3508,32 @@ namespace AGS.Plugin.FontEditor
                 _bulkUpdate = false;
             }
 
+            if (changedIndexes.Count > 0)
+            {
+                _multiUndoStack.Push(changedIndexes);
+                _multiRedoStack.Clear();
+            }
+
+            if (_selectedPreview != null)
+            {
+                CCharInfo activeCharacter =
+                    (CCharInfo)_selectedPreview.Tag;
+
+                DisplayCurrentCharacter(activeCharacter);
+            }
+
             CheckChange();
         }
         private async void BtnAllBlankClear_Click(object sender, EventArgs e)
         {
+            CollapseSelectionToActiveGlyph();
+
             if (FontInfo == null || FontInfo.Character == null)
                 return;
 
             FlowCharacterPanel.SuspendLayout();
+
+            List<int> changedIndexes = new List<int>();
 
             try
             {
@@ -1951,11 +3544,14 @@ namespace AGS.Plugin.FontEditor
                     if (character == null)
                         continue;
 
-                    // Skip real placeholders
-                    if (character.ByteLines == null || character.ByteLines.Length == 0)
+                    // Skip real placeholders.
+                    if (character.ByteLines == null ||
+                        character.ByteLines.Length == 0)
+                    {
                         continue;
+                    }
 
-                    // Check if bitmap is completely black
+                    // Check whether this glyph is completely blank.
                     bool isAllBlack = true;
 
                     foreach (byte b in character.ByteLines)
@@ -1970,40 +3566,32 @@ namespace AGS.Plugin.FontEditor
                     if (!isAllBlack)
                         continue;
 
-                    // 🔴 Convert to placeholder
+                    // Make sure the current non-placeholder state exists
+                    // in this glyph's Undo history before changing it.
+                    character.UndoRedoListTidyUp();
+                    character.UndoRedoListAdd(character.ByteLines);
+
+                    // Convert to a true placeholder.
                     character.Width = 0;
                     character.Height = 0;
-                    character.WidthOriginal = 0;
-                    character.HeightOriginal = 0;
-
                     character.ByteLines = null;
-                    character.ByteLinesOriginal = null;
                     character.UnscaledImage = null;
 
-                    // If this glyph is currently selected, re-display it
-                    if (character.Index == Index)
+                    // Store the new placeholder state in Undo history.
+                    character.UndoRedoListAdd(character.ByteLines);
+
+                    changedIndexes.Add(character.Index);
+
+                    RefreshCharacterPreview(pict, character);
+
+                    if (pict.ContextMenu != null)
                     {
-                        DisplayCurrentCharacter(character);
+                        pict.ContextMenu.MenuItems[0].Enabled =
+                            character.UndoPossible;
+
+                        pict.ContextMenu.MenuItems[1].Enabled =
+                            character.RedoPossible;
                     }
-
-                    // Replace preview image with placeholder
-                    int previewW = 8 * Scalefactor;
-                    int previewH = 9 * Scalefactor;
-
-                    Bitmap placeholder = new Bitmap(previewW, previewH);
-                    using (Graphics g = Graphics.FromImage(placeholder))
-                    {
-                        g.Clear(XmlSettings.Color);
-
-                        using (Pen pen = new Pen(Color.White))
-                        {
-                            g.DrawRectangle(pen, 0, 0, previewW - 1, previewH - 1);
-                        }
-                    }
-
-                    pict.Image = placeholder;
-                    pict.Width = previewW;
-                    pict.Height = previewH;
 
                     await Task.Yield();
                 }
@@ -2013,8 +3601,23 @@ namespace AGS.Plugin.FontEditor
                 FlowCharacterPanel.ResumeLayout();
             }
 
-            CheckChange();
+            // Treat all converted blank glyphs as one Undo/Redo transaction.
+            if (changedIndexes.Count > 0)
+            {
+                _multiUndoStack.Push(changedIndexes);
+                _multiRedoStack.Clear();
+            }
 
+            // Restore the active glyph on the canvas.
+            if (_selectedPreview != null)
+            {
+                CCharInfo activeCharacter =
+                    (CCharInfo)_selectedPreview.Tag;
+
+                DisplayCurrentCharacter(activeCharacter);
+            }
+
+            CheckChange();
         }
 
 
@@ -2083,8 +3686,12 @@ namespace AGS.Plugin.FontEditor
 
                     if (localIndex >= 0 && localIndex < CharacterPictureList.Count)
                     {
+                        PictureBox pict = CharacterPictureList[localIndex];
+
+                        SelectOnlyPreview(pict);
+
                         CCharInfo characterinfo =
-                            (CCharInfo)CharacterPictureList[localIndex].Tag;
+                            (CCharInfo)pict.Tag;
 
                         DisplayCurrentCharacter(characterinfo);
                     }
@@ -2095,6 +3702,32 @@ namespace AGS.Plugin.FontEditor
 
                 e.Handled = true;
             }
+
+            // Allow control keys such as Backspace and Enter.
+            if (char.IsControl(e.KeyChar))
+            {
+                // Let the existing Enter logic below handle Enter.
+            }
+            else if (char.IsDigit(e.KeyChar))
+            {
+                // Maximum allowed typed index: 99999.
+                // Account for selected text, because typing replaces it.
+                int selectedLength = TxtCharacter.SelectionLength;
+                int resultingLength =
+                    TxtCharacter.Text.Length - selectedLength + 1;
+
+                if (resultingLength > 5)
+                {
+                    e.Handled = true;
+                    return;
+                }
+            }
+            else
+            {
+                // Index field accepts digits only.
+                e.Handled = true;
+                return;
+            }
         }
 
 
@@ -2102,6 +3735,17 @@ namespace AGS.Plugin.FontEditor
         {
             if (ChkOneAllCharacters.Checked)
             {
+                // "Use on all characters" overrides any multi-selection.
+                // Keep the active glyph on the canvas, but remove the
+                // visual/group selection.
+                ClearPreviewSelection();
+
+                if (_selectedPreview != null)
+                {
+                    AddPreviewToSelection(_selectedPreview);
+                    _selectionAnchor = _selectedPreview;
+                }
+
                 GrpOneCharacter.BackColor = SystemColors.Highlight;
             }
             else
@@ -2367,8 +4011,12 @@ namespace AGS.Plugin.FontEditor
 
             if (localIndex >= 0 && localIndex < CharacterPictureList.Count)
             {
+                PictureBox pict = CharacterPictureList[localIndex];
+
+                SelectOnlyPreview(pict);
+
                 CCharInfo characterinfo =
-                    (CCharInfo)CharacterPictureList[localIndex].Tag;
+                    (CCharInfo)pict.Tag;
 
                 DisplayCurrentCharacter(characterinfo);
             }
@@ -2568,7 +4216,7 @@ namespace AGS.Plugin.FontEditor
             if (pb == null)
                 return;
 
-            if (pb == _selectedPreview)
+            if (IsPreviewSelected(pb))
             {
                 using (Pen pen = new Pen(Color.DeepSkyBlue, 2))
                 {
