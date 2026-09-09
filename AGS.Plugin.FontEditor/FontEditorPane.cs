@@ -12,6 +12,64 @@ namespace AGS.Plugin.FontEditor
 {
     public partial class FontEditorPane : EditorContentPanel
     {
+        private static Bitmap CreateCombinedGlyphBitmap(List<PictureBox> sources)
+        {
+            if (sources == null || sources.Count == 0)
+                return null;
+
+            int totalWidth = 0;
+            int maxHeight = 0;
+
+            foreach (PictureBox picture in sources)
+            {
+                CCharInfo character = picture.Tag as CCharInfo;
+
+                if (character == null ||
+                    character.UnscaledImage == null)
+                {
+                    continue;
+                }
+
+                totalWidth += character.UnscaledImage.Width;
+
+                if (character.UnscaledImage.Height > maxHeight)
+                    maxHeight = character.UnscaledImage.Height;
+            }
+
+            if (totalWidth <= 0 || maxHeight <= 0)
+                return null;
+
+            Bitmap combined =
+                new Bitmap(totalWidth, maxHeight);
+
+            using (Graphics g = Graphics.FromImage(combined))
+            {
+                g.Clear(Color.Black);
+
+                int x = 0;
+
+                foreach (PictureBox picture in sources)
+                {
+                    CCharInfo character =
+                        picture.Tag as CCharInfo;
+
+                    if (character == null ||
+                        character.UnscaledImage == null)
+                    {
+                        continue;
+                    }
+
+                    g.DrawImageUnscaled(
+                        character.UnscaledImage,
+                        x,
+                        0);
+
+                    x += character.UnscaledImage.Width;
+                }
+            }
+
+            return combined;
+        }
         Settings XmlSettings = new Settings();
         private List<PictureBox> CharacterPictureList = new List<PictureBox>();
         private PictureBox _selectedPreview = null;
@@ -24,8 +82,121 @@ namespace AGS.Plugin.FontEditor
             public byte[] ByteLines;
         }
 
-        private List<CopiedGlyph> _copiedGlyphs =
+        private static List<CopiedGlyph> _copiedGlyphs =
             new List<CopiedGlyph>();
+        private const string GlyphClipboardFormat =
+            "WFNFontEditor.MultiGlyphData";
+
+        private static byte[] SerializeCopiedGlyphs(List<CopiedGlyph> glyphs)
+        {
+            using (System.IO.MemoryStream stream =
+                new System.IO.MemoryStream())
+            using (System.IO.BinaryWriter writer =
+                new System.IO.BinaryWriter(stream))
+            {
+                writer.Write(1); // format version
+                writer.Write(glyphs.Count);
+
+                foreach (CopiedGlyph glyph in glyphs)
+                {
+                    writer.Write(glyph.SourceIndex);
+                    writer.Write(glyph.Width);
+                    writer.Write(glyph.Height);
+
+                    if (glyph.ByteLines == null)
+                    {
+                        writer.Write(-1);
+                    }
+                    else
+                    {
+                        writer.Write(glyph.ByteLines.Length);
+                        writer.Write(glyph.ByteLines);
+                    }
+                }
+
+                writer.Flush();
+                return stream.ToArray();
+            }
+        }
+
+        private static bool TryLoadCopiedGlyphsFromClipboard()
+        {
+            try
+            {
+                if (!Clipboard.ContainsData(GlyphClipboardFormat))
+                    return false;
+
+                object data =
+                    Clipboard.GetData(GlyphClipboardFormat);
+
+                byte[] bytes = data as byte[];
+                if (bytes == null)
+                    return false;
+
+                List<CopiedGlyph> loadedGlyphs =
+                    new List<CopiedGlyph>();
+
+                using (System.IO.MemoryStream stream =
+                    new System.IO.MemoryStream(bytes))
+                using (System.IO.BinaryReader reader =
+                    new System.IO.BinaryReader(stream))
+                {
+                    int version = reader.ReadInt32();
+
+                    if (version != 1)
+                        return false;
+
+                    int count = reader.ReadInt32();
+
+                    if (count <= 0 || count > 256)
+                        return false;
+
+                    for (int i = 0; i < count; i++)
+                    {
+                        CopiedGlyph glyph =
+                            new CopiedGlyph();
+
+                        glyph.SourceIndex =
+                            reader.ReadInt32();
+
+                        glyph.Width =
+                            reader.ReadUInt16();
+
+                        glyph.Height =
+                            reader.ReadUInt16();
+
+                        int byteCount =
+                            reader.ReadInt32();
+
+                        if (byteCount < 0)
+                        {
+                            glyph.ByteLines = null;
+                        }
+                        else
+                        {
+                            if (byteCount > 1024 * 1024)
+                                return false;
+
+                            glyph.ByteLines =
+                                reader.ReadBytes(byteCount);
+
+                            if (glyph.ByteLines.Length != byteCount)
+                                return false;
+                        }
+
+                        loadedGlyphs.Add(glyph);
+                    }
+                }
+
+                _copiedGlyphs = loadedGlyphs;
+                return true;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
         private Stack<List<int>> _multiUndoStack = new Stack<List<int>>();
         private Stack<List<int>> _multiRedoStack = new Stack<List<int>>();
         private enum StructuralEditType
@@ -1084,26 +1255,46 @@ namespace AGS.Plugin.FontEditor
                 _copiedGlyphs.Add(copied);
             }
 
-            // Keep the old Windows clipboard behavior for a normal
-            // single-glyph copy.
-            if (_copiedGlyphs.Count == 1)
+            try
             {
-                CCharInfo character =
-                    clickedPicture.Tag as CCharInfo;
+                DataObject clipboardData = new DataObject();
 
-                if (character != null &&
-                    character.UnscaledImage != null)
+                // Store our complete WFN glyph data in the Windows clipboard.
+                byte[] serializedGlyphs =
+                    SerializeCopiedGlyphs(_copiedGlyphs);
+
+                clipboardData.SetData(
+                    GlyphClipboardFormat,
+                    serializedGlyphs);
+
+                Bitmap clipboardBitmap =
+                    CreateCombinedGlyphBitmap(sources);
+
+                if (clipboardBitmap != null)
                 {
-                    Clipboard.SetData(
+                    clipboardData.SetData(
+                        DataFormats.Bitmap,
+                        clipboardBitmap);
+
+                    clipboardData.SetData(
                         DataFormats.Dib,
-                        character.UnscaledImage);
+                        clipboardBitmap);
                 }
+
+                Clipboard.SetDataObject(clipboardData, true);
+            }
+            catch
+            {
+                // If Windows clipboard access fails, the internal
+                // copy buffer still remains available.
             }
 
             CheckChange();
         }
         void MenuPasteClicked(object sender, EventArgs e)
         {
+            TryLoadCopiedGlyphsFromClipboard();
+
             MenuItem menu = (MenuItem)sender;
             if (menu == null)
                 return;
@@ -2524,38 +2715,117 @@ namespace AGS.Plugin.FontEditor
 
         private Image RenderTextLine(string text)
         {
-            Int32 xpos = 0;
-            Int32 widthpreliminary = 0;
-            Int32 heightpreliminary = 0;
-            Image bmp;
-
-            try
+            if (FontInfo == null ||
+                FontInfo.Character == null ||
+                string.IsNullOrEmpty(text))
             {
-                foreach (char c in text)
-                {
-                    widthpreliminary += FontInfo.Character[c].Width;
-                    heightpreliminary = Math.Max(heightpreliminary, FontInfo.Character[c].Height);
-                }
-
-                bmp = new Bitmap(widthpreliminary + 4, heightpreliminary + 4);
-                Graphics g = Graphics.FromImage(bmp);
-
-                g.FillRectangle(new SolidBrush(Color.Gray), 0, 0, bmp.Width, bmp.Height);
-
-                foreach (char c in text)
-                {
-                    g.DrawImageUnscaled(FontInfo.Character[c].UnscaledImage, xpos + 2, 2);
-                    xpos += FontInfo.Character[c].Width;
-                }
-
-                g.Dispose();
+                return CreateRenderErrorImage();
             }
-            catch
+
+            int width = 0;
+            int height = 0;
+
+            // First pass: check the requested glyphs against the ENTIRE font.
+            foreach (char c in text)
             {
-                bmp = new Bitmap(600, 20);
-                Graphics g = Graphics.FromImage(bmp);
-                g.DrawString("No rendering possible. Not enough characters in the font, or another problem!", new System.Drawing.Font("Arial", 12), new SolidBrush(Color.Black), 2, 2);
-                g.Dispose();
+                int glyphIndex = (int)c;
+
+                if (glyphIndex < 0 ||
+                    glyphIndex >= FontInfo.Character.Length)
+                {
+                    return CreateRenderErrorImage();
+                }
+
+                CCharInfo glyph = FontInfo.Character[glyphIndex];
+
+                // The glyph must actually contain drawable font data.
+                if (glyph == null ||
+                    glyph.Width == 0 ||
+                    glyph.Height == 0 ||
+                    glyph.ByteLines == null)
+                {
+                    return CreateRenderErrorImage();
+                }
+
+                width += glyph.Width;
+                height = Math.Max(height, glyph.Height);
+            }
+
+            Bitmap bmp = new Bitmap(
+                Math.Max(width + 4, 4),
+                Math.Max(height + 4, 4));
+
+            using (Graphics g = Graphics.FromImage(bmp))
+            {
+                g.FillRectangle(
+                    Brushes.Gray,
+                    0,
+                    0,
+                    bmp.Width,
+                    bmp.Height);
+
+                int xpos = 2;
+
+                foreach (char c in text)
+                {
+                    int glyphIndex = (int)c;
+
+                    CCharInfo glyph =
+                        FontInfo.Character[glyphIndex];
+
+                    Bitmap glyphBitmap = null;
+                    bool temporaryBitmap = false;
+
+                    // If this glyph is on another page, its UnscaledImage
+                    // may never have been created yet.
+                    if (glyph.UnscaledImage != null)
+                    {
+                        glyphBitmap = glyph.UnscaledImage as Bitmap;
+                    }
+
+                    if (glyphBitmap == null)
+                    {
+                        CFontUtils.CreateBitmap(
+                            glyph,
+                            out glyphBitmap);
+
+                        temporaryBitmap = true;
+                    }
+
+                    if (glyphBitmap == null)
+                    {
+                        bmp.Dispose();
+                        return CreateRenderErrorImage();
+                    }
+
+                    g.DrawImageUnscaled(
+                        glyphBitmap,
+                        xpos,
+                        2);
+
+                    xpos += glyph.Width;
+
+                    // Don't keep temporary render-only bitmaps around.
+                    if (temporaryBitmap)
+                        glyphBitmap.Dispose();
+                }
+            }
+
+            return bmp;
+        }
+
+        private Image CreateRenderErrorImage()
+        {
+            Bitmap bmp = new Bitmap(600, 20);
+
+            using (Graphics g = Graphics.FromImage(bmp))
+            {
+                g.DrawString(
+                    "No rendering possible. Not enough characters in the font, or another problem!",
+                    new System.Drawing.Font("Arial", 12),
+                    Brushes.Black,
+                    2,
+                    2);
             }
 
             return bmp;
@@ -3340,9 +3610,13 @@ namespace AGS.Plugin.FontEditor
         }
         private void BtnSetText_Click(object sender, EventArgs e)
         {
-            string newValue = "";
+            string newValue = XmlSettings.CustomText;
 
-            Settings.InputBox("Set new Text you wish to render.", XmlSettings.CustomText, ref newValue);
+            Settings.InputBox(
+                "Set Text",
+                "Set new text to render:",
+                ref newValue,
+                true);
 
             if (newValue != null && newValue != "")
             {
