@@ -12,6 +12,300 @@ namespace AGS.Plugin.FontEditor
 {
     public partial class FontEditorPane : EditorContentPanel
     {
+        private static void ApplyThemeToAllOpenFontEditors()
+        {
+            foreach (Form form in Application.OpenForms)
+            {
+                ApplyThemeToFontEditorsRecursive(form);
+            }
+        }
+
+        private static void ApplyThemeToFontEditorsRecursive(Control parent)
+        {
+            foreach (Control control in parent.Controls)
+            {
+                FontEditorPane pane = control as FontEditorPane;
+
+                if (pane != null)
+                {
+                    pane.ApplyTheme();
+                }
+
+                if (control.HasChildren)
+                {
+                    ApplyThemeToFontEditorsRecursive(control);
+                }
+            }
+        }
+        protected override CreateParams CreateParams
+        {
+            get
+            {
+                CreateParams cp = base.CreateParams;
+
+                // WS_EX_COMPOSITED:
+                // paint this control and its child controls as one buffered surface.
+                cp.ExStyle |= 0x02000000;
+
+                return cp;
+            }
+        }
+        private void ApplyTheme()
+        {
+            Color backColor;
+            Color controlColor;
+            Color textColor;
+
+            if (_darkMode)
+            {
+                backColor = Color.FromArgb(37, 37, 38);
+                controlColor = Color.FromArgb(63, 63, 70);
+                textColor = Color.White;
+            }
+            else
+            {
+                backColor = SystemColors.Control;
+                controlColor = SystemColors.Window;
+                textColor = SystemColors.ControlText;
+            }
+
+            // Give the zoom slider the correct theme background explicitly.
+            ZoomDrawingArea.BackColor = backColor;
+
+            ApplyThemeToControls(
+                this,
+                backColor,
+                controlColor,
+                textColor);
+
+            BtnDarkMode.Text =
+                _darkMode ? "Light Mode" : "Dark mode";
+
+            // Theme the surrounding standalone host area too.
+            // Do NOT theme the AGS Editor host in plugin mode.
+            Form hostForm = this.FindForm();
+
+            if (hostForm != null &&
+                hostForm.GetType().Name == "MainWindow")
+            {
+                Color outerColor =
+                    _darkMode
+                        ? Color.FromArgb(45, 45, 48)   // #2D2D30
+                        : SystemColors.Control;
+
+                Color hostButtonColor =
+                    _darkMode
+                        ? Color.FromArgb(63, 63, 70)   // same as lower buttons
+                        : SystemColors.Control;
+
+                Color hostTextColor =
+                    _darkMode
+                        ? Color.White
+                        : SystemColors.ControlText;
+
+                hostForm.BackColor = outerColor;
+
+                System.Reflection.MethodInfo applyHostTheme =
+                hostForm.GetType().GetMethod(
+                    "ApplyStandaloneDarkHost",
+                    System.Reflection.BindingFlags.Instance |
+                    System.Reflection.BindingFlags.Public);
+
+                if (applyHostTheme != null)
+                {
+                    applyHostTheme.Invoke(
+                        hostForm,
+                        new object[] { _darkMode });
+                }
+
+                foreach (Control control in hostForm.Controls)
+                {
+                    // Upper toolbar buttons.
+                    if (control is Button)
+                    {
+                        Button button = (Button)control;
+
+                        button.UseVisualStyleBackColor = false;
+                        button.BackColor = hostButtonColor;
+                        button.ForeColor = hostTextColor;
+
+                        button.FlatStyle =
+                            _darkMode
+                                ? FlatStyle.Flat
+                                : FlatStyle.Standard;
+
+                        if (_darkMode)
+                        {
+                            button.FlatAppearance.BorderColor =
+                                Color.FromArgb(100, 100, 105);
+                        }
+                    }
+
+                    // Standalone font tabs.
+                    if (control is TabControl)
+                    {
+                        TabControl tabs = (TabControl)control;
+
+                        tabs.BackColor = outerColor;
+
+                        foreach (TabPage page in tabs.TabPages)
+                            page.BackColor = outerColor;
+
+                        // Force our owner-drawn tabs to repaint immediately.
+                        tabs.Invalidate();
+                    }
+                }
+            }
+        }
+        public void ReapplyTheme()
+        {
+            ApplyTheme();
+        }
+        private void ApplyThemeToControls(
+    Control parent,
+    Color backColor,
+    Color controlColor,
+    Color textColor)
+        {
+            foreach (Control control in parent.Controls)
+            {
+                // These are actual font/glyph display surfaces.
+                // Their colors must not be changed by the UI theme.
+                if (control == FlowCharacterPanel ||
+                    control == DrawingArea ||
+                    control == PictRenderText ||
+                    control == PanelLeftMouse ||
+                    control == PanelRightMouse ||
+                    control == PictSwap)
+                {
+                    continue;
+                }
+
+                if (control is TextBox ||
+                    control is NumericUpDown)
+                {
+                    control.BackColor = controlColor;
+                    control.ForeColor = textColor;
+                }
+                else if (control is Button)
+                {
+                    Button button = (Button)control;
+
+                    button.UseVisualStyleBackColor = false;
+                    button.BackColor =
+                        _darkMode
+                            ? Color.FromArgb(63, 63, 70)
+                            : SystemColors.Control;
+
+                    button.ForeColor = textColor;
+
+                    button.FlatStyle =
+                        _darkMode
+                            ? FlatStyle.Flat
+                            : FlatStyle.Standard;
+
+                    if (_darkMode)
+                    {
+                        button.FlatAppearance.BorderColor =
+                            Color.FromArgb(100, 100, 105);
+                    }
+                }
+                else if (control is CheckBox)
+                {
+                    control.BackColor = backColor;
+                    control.ForeColor = textColor;
+                }
+                else
+                {
+                    control.BackColor = backColor;
+                    control.ForeColor = textColor;
+                }
+
+                if (control.HasChildren)
+                {
+                    ApplyThemeToControls(
+                        control,
+                        backColor,
+                        controlColor,
+                        textColor);
+                }
+            }
+
+            // Theme the FontEditorPane itself.
+            if (parent == this)
+            {
+                this.BackColor = backColor;
+                this.ForeColor = textColor;
+            }
+        }
+        private static bool _darkMode = false;
+        private void BtnDarkMode_Click(object sender, EventArgs e)
+        {
+            _darkMode = !_darkMode;
+
+            XmlSettings.DarkMode = _darkMode;
+            XmlSettings.Write();
+
+            ApplyThemeToAllOpenFontEditors();
+        }
+        private static Bitmap CreateCombinedGlyphBitmap(List<PictureBox> sources)
+        {
+            if (sources == null || sources.Count == 0)
+                return null;
+
+            int totalWidth = 0;
+            int maxHeight = 0;
+
+            foreach (PictureBox picture in sources)
+            {
+                CCharInfo character = picture.Tag as CCharInfo;
+
+                if (character == null ||
+                    character.UnscaledImage == null)
+                {
+                    continue;
+                }
+
+                totalWidth += character.UnscaledImage.Width;
+
+                if (character.UnscaledImage.Height > maxHeight)
+                    maxHeight = character.UnscaledImage.Height;
+            }
+
+            if (totalWidth <= 0 || maxHeight <= 0)
+                return null;
+
+            Bitmap combined =
+                new Bitmap(totalWidth, maxHeight);
+
+            using (Graphics g = Graphics.FromImage(combined))
+            {
+                g.Clear(Color.Black);
+
+                int x = 0;
+
+                foreach (PictureBox picture in sources)
+                {
+                    CCharInfo character =
+                        picture.Tag as CCharInfo;
+
+                    if (character == null ||
+                        character.UnscaledImage == null)
+                    {
+                        continue;
+                    }
+
+                    g.DrawImageUnscaled(
+                        character.UnscaledImage,
+                        x,
+                        0);
+
+                    x += character.UnscaledImage.Width;
+                }
+            }
+
+            return combined;
+        }
         Settings XmlSettings = new Settings();
         private List<PictureBox> CharacterPictureList = new List<PictureBox>();
         private PictureBox _selectedPreview = null;
@@ -24,8 +318,121 @@ namespace AGS.Plugin.FontEditor
             public byte[] ByteLines;
         }
 
-        private List<CopiedGlyph> _copiedGlyphs =
+        private static List<CopiedGlyph> _copiedGlyphs =
             new List<CopiedGlyph>();
+        private const string GlyphClipboardFormat =
+            "WFNFontEditor.MultiGlyphData";
+
+        private static byte[] SerializeCopiedGlyphs(List<CopiedGlyph> glyphs)
+        {
+            using (System.IO.MemoryStream stream =
+                new System.IO.MemoryStream())
+            using (System.IO.BinaryWriter writer =
+                new System.IO.BinaryWriter(stream))
+            {
+                writer.Write(1); // format version
+                writer.Write(glyphs.Count);
+
+                foreach (CopiedGlyph glyph in glyphs)
+                {
+                    writer.Write(glyph.SourceIndex);
+                    writer.Write(glyph.Width);
+                    writer.Write(glyph.Height);
+
+                    if (glyph.ByteLines == null)
+                    {
+                        writer.Write(-1);
+                    }
+                    else
+                    {
+                        writer.Write(glyph.ByteLines.Length);
+                        writer.Write(glyph.ByteLines);
+                    }
+                }
+
+                writer.Flush();
+                return stream.ToArray();
+            }
+        }
+
+        private static bool TryLoadCopiedGlyphsFromClipboard()
+        {
+            try
+            {
+                if (!Clipboard.ContainsData(GlyphClipboardFormat))
+                    return false;
+
+                object data =
+                    Clipboard.GetData(GlyphClipboardFormat);
+
+                byte[] bytes = data as byte[];
+                if (bytes == null)
+                    return false;
+
+                List<CopiedGlyph> loadedGlyphs =
+                    new List<CopiedGlyph>();
+
+                using (System.IO.MemoryStream stream =
+                    new System.IO.MemoryStream(bytes))
+                using (System.IO.BinaryReader reader =
+                    new System.IO.BinaryReader(stream))
+                {
+                    int version = reader.ReadInt32();
+
+                    if (version != 1)
+                        return false;
+
+                    int count = reader.ReadInt32();
+
+                    if (count <= 0 || count > 256)
+                        return false;
+
+                    for (int i = 0; i < count; i++)
+                    {
+                        CopiedGlyph glyph =
+                            new CopiedGlyph();
+
+                        glyph.SourceIndex =
+                            reader.ReadInt32();
+
+                        glyph.Width =
+                            reader.ReadUInt16();
+
+                        glyph.Height =
+                            reader.ReadUInt16();
+
+                        int byteCount =
+                            reader.ReadInt32();
+
+                        if (byteCount < 0)
+                        {
+                            glyph.ByteLines = null;
+                        }
+                        else
+                        {
+                            if (byteCount > 1024 * 1024)
+                                return false;
+
+                            glyph.ByteLines =
+                                reader.ReadBytes(byteCount);
+
+                            if (glyph.ByteLines.Length != byteCount)
+                                return false;
+                        }
+
+                        loadedGlyphs.Add(glyph);
+                    }
+                }
+
+                _copiedGlyphs = loadedGlyphs;
+                return true;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
         private Stack<List<int>> _multiUndoStack = new Stack<List<int>>();
         private Stack<List<int>> _multiRedoStack = new Stack<List<int>>();
         private enum StructuralEditType
@@ -204,12 +611,30 @@ namespace AGS.Plugin.FontEditor
             //AGS.Plugin.FontEditor.EmbeddedResources.AGSFNT2.WFN
 
             XmlSettings.Read();
+
+            // Restore the saved theme.
+            _darkMode = XmlSettings.DarkMode;
+
             InitializeComponent();
 
             typeof(PictureBox)
                 .GetProperty("DoubleBuffered",
                     System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)
                 ?.SetValue(DrawingArea, true, null);
+
+            typeof(Control)
+                .GetProperty(
+                    "DoubleBuffered",
+                    System.Reflection.BindingFlags.Instance |
+                    System.Reflection.BindingFlags.NonPublic)
+                ?.SetValue(ZoomDrawingArea, true, null);
+
+            this.SetStyle(
+                ControlStyles.AllPaintingInWmPaint |
+                ControlStyles.OptimizedDoubleBuffer,
+                true);
+
+            this.UpdateStyles();
 
             this.MouseDown += new System.Windows.Forms.MouseEventHandler(this.Form_MouseDown);
 
@@ -223,6 +648,8 @@ namespace AGS.Plugin.FontEditor
 
             this.CreateControl();
             LoadInternalResources();
+
+            ApplyTheme();
         }
         public CFontInfo CurrentFontInfo
         {
@@ -328,17 +755,28 @@ namespace AGS.Plugin.FontEditor
                 if (sizeBytes > 65535)
                 {
                     GroupBox.ForeColor = Color.Red;
-                    GroupBox.Text = $"Font size {sizeKB:0.00} KB / 64 KB (THIS WON'T SAVE!)";
+                    GroupBox.Text =
+                        $"Font size {sizeKB:0.00} KB / 64 KB (THIS WON'T SAVE!)";
                 }
-                else {
-                    GroupBox.ForeColor = Color.Black;
-                    GroupBox.Text = $"Font size {sizeKB:0.00} KB / 64 KB";
+                else
+                {
+                    GroupBox.ForeColor =
+                        _darkMode
+                            ? Color.White
+                            : Color.Black;
+
+                    GroupBox.Text =
+                        $"Font size {sizeKB:0.00} KB / 64 KB";
                 }
             }
             else
             {
                 GroupBox.Text = "Selected font settings";
-                GroupBox.ForeColor = Color.Black;
+
+                GroupBox.ForeColor =
+                    _darkMode
+                        ? Color.White
+                        : Color.Black;
             }
         }
 
@@ -1084,26 +1522,46 @@ namespace AGS.Plugin.FontEditor
                 _copiedGlyphs.Add(copied);
             }
 
-            // Keep the old Windows clipboard behavior for a normal
-            // single-glyph copy.
-            if (_copiedGlyphs.Count == 1)
+            try
             {
-                CCharInfo character =
-                    clickedPicture.Tag as CCharInfo;
+                DataObject clipboardData = new DataObject();
 
-                if (character != null &&
-                    character.UnscaledImage != null)
+                // Store our complete WFN glyph data in the Windows clipboard.
+                byte[] serializedGlyphs =
+                    SerializeCopiedGlyphs(_copiedGlyphs);
+
+                clipboardData.SetData(
+                    GlyphClipboardFormat,
+                    serializedGlyphs);
+
+                Bitmap clipboardBitmap =
+                    CreateCombinedGlyphBitmap(sources);
+
+                if (clipboardBitmap != null)
                 {
-                    Clipboard.SetData(
+                    clipboardData.SetData(
+                        DataFormats.Bitmap,
+                        clipboardBitmap);
+
+                    clipboardData.SetData(
                         DataFormats.Dib,
-                        character.UnscaledImage);
+                        clipboardBitmap);
                 }
+
+                Clipboard.SetDataObject(clipboardData, true);
+            }
+            catch
+            {
+                // If Windows clipboard access fails, the internal
+                // copy buffer still remains available.
             }
 
             CheckChange();
         }
         void MenuPasteClicked(object sender, EventArgs e)
         {
+            TryLoadCopiedGlyphsFromClipboard();
+
             MenuItem menu = (MenuItem)sender;
             if (menu == null)
                 return;
@@ -2110,8 +2568,13 @@ namespace AGS.Plugin.FontEditor
             // Optional: grid overlay happens in Paint/Mouse logic; don't call PaintOnDrawingArea here.
 
             int localIndex = Index - PageStart;
-            if (localIndex >= 0 && localIndex < CharacterPictureList.Count)
-                SetSelectedPreview(CharacterPictureList[localIndex]);
+
+            if (localIndex >= 0 &&
+                localIndex < CharacterPictureList.Count)
+            {
+                SelectOnlyPreview(
+                    CharacterPictureList[localIndex]);
+            }
 
             PaintOnDrawingArea(DrawingArea, null);
         }
@@ -2524,38 +2987,117 @@ namespace AGS.Plugin.FontEditor
 
         private Image RenderTextLine(string text)
         {
-            Int32 xpos = 0;
-            Int32 widthpreliminary = 0;
-            Int32 heightpreliminary = 0;
-            Image bmp;
-
-            try
+            if (FontInfo == null ||
+                FontInfo.Character == null ||
+                string.IsNullOrEmpty(text))
             {
-                foreach (char c in text)
-                {
-                    widthpreliminary += FontInfo.Character[c].Width;
-                    heightpreliminary = Math.Max(heightpreliminary, FontInfo.Character[c].Height);
-                }
-
-                bmp = new Bitmap(widthpreliminary + 4, heightpreliminary + 4);
-                Graphics g = Graphics.FromImage(bmp);
-
-                g.FillRectangle(new SolidBrush(Color.Gray), 0, 0, bmp.Width, bmp.Height);
-
-                foreach (char c in text)
-                {
-                    g.DrawImageUnscaled(FontInfo.Character[c].UnscaledImage, xpos + 2, 2);
-                    xpos += FontInfo.Character[c].Width;
-                }
-
-                g.Dispose();
+                return CreateRenderErrorImage();
             }
-            catch
+
+            int width = 0;
+            int height = 0;
+
+            // First pass: check the requested glyphs against the ENTIRE font.
+            foreach (char c in text)
             {
-                bmp = new Bitmap(600, 20);
-                Graphics g = Graphics.FromImage(bmp);
-                g.DrawString("No rendering possible. Not enough characters in the font, or another problem!", new System.Drawing.Font("Arial", 12), new SolidBrush(Color.Black), 2, 2);
-                g.Dispose();
+                int glyphIndex = (int)c;
+
+                if (glyphIndex < 0 ||
+                    glyphIndex >= FontInfo.Character.Length)
+                {
+                    return CreateRenderErrorImage();
+                }
+
+                CCharInfo glyph = FontInfo.Character[glyphIndex];
+
+                // The glyph must actually contain drawable font data.
+                if (glyph == null ||
+                    glyph.Width == 0 ||
+                    glyph.Height == 0 ||
+                    glyph.ByteLines == null)
+                {
+                    return CreateRenderErrorImage();
+                }
+
+                width += glyph.Width;
+                height = Math.Max(height, glyph.Height);
+            }
+
+            Bitmap bmp = new Bitmap(
+                Math.Max(width + 4, 4),
+                Math.Max(height + 4, 4));
+
+            using (Graphics g = Graphics.FromImage(bmp))
+            {
+                g.FillRectangle(
+                    Brushes.Gray,
+                    0,
+                    0,
+                    bmp.Width,
+                    bmp.Height);
+
+                int xpos = 2;
+
+                foreach (char c in text)
+                {
+                    int glyphIndex = (int)c;
+
+                    CCharInfo glyph =
+                        FontInfo.Character[glyphIndex];
+
+                    Bitmap glyphBitmap = null;
+                    bool temporaryBitmap = false;
+
+                    // If this glyph is on another page, its UnscaledImage
+                    // may never have been created yet.
+                    if (glyph.UnscaledImage != null)
+                    {
+                        glyphBitmap = glyph.UnscaledImage as Bitmap;
+                    }
+
+                    if (glyphBitmap == null)
+                    {
+                        CFontUtils.CreateBitmap(
+                            glyph,
+                            out glyphBitmap);
+
+                        temporaryBitmap = true;
+                    }
+
+                    if (glyphBitmap == null)
+                    {
+                        bmp.Dispose();
+                        return CreateRenderErrorImage();
+                    }
+
+                    g.DrawImageUnscaled(
+                        glyphBitmap,
+                        xpos,
+                        2);
+
+                    xpos += glyph.Width;
+
+                    // Don't keep temporary render-only bitmaps around.
+                    if (temporaryBitmap)
+                        glyphBitmap.Dispose();
+                }
+            }
+
+            return bmp;
+        }
+
+        private Image CreateRenderErrorImage()
+        {
+            Bitmap bmp = new Bitmap(600, 20);
+
+            using (Graphics g = Graphics.FromImage(bmp))
+            {
+                g.DrawString(
+                    "No rendering possible. Not enough characters in the font, or another problem!",
+                    new System.Drawing.Font("Arial", 12),
+                    Brushes.Black,
+                    2,
+                    2);
             }
 
             return bmp;
@@ -3340,9 +3882,13 @@ namespace AGS.Plugin.FontEditor
         }
         private void BtnSetText_Click(object sender, EventArgs e)
         {
-            string newValue = "";
+            string newValue = XmlSettings.CustomText;
 
-            Settings.InputBox("Set new Text you wish to render.", XmlSettings.CustomText, ref newValue);
+            Settings.InputBox(
+                "Set Text",
+                "Set new text to render:",
+                ref newValue,
+                true);
 
             if (newValue != null && newValue != "")
             {

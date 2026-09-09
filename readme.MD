@@ -24,7 +24,11 @@ Plugin & Standalone:
 - Multiple glyphs selection support! This is useful for copying and pasting a range of glyphs to another font easily, and would preserve the relative index positions for non-contiguous selections.
 - One Character operations would work on multiple selection as well. Other operations will deselect the multiple selection and would affect only the achor glyph showing on the canvas.
 - Ability to drag WFN files over the interface to opening them.
-
+- Added support for copying and pasting multiple glyphs to external paint programs.
+- Allowing pasting glyphs between separated instances of the program (also works in the plugin when opening different fonts in the AGS Editor).
+- Set Text will now allow to edit the previous text, and also has a "Reverse" button for reversing the text for RTL representation when hitting the Render Text button.
+- Render Text button will now look for the glyphs in the entire font range, rather than in the current page.
+- Dark mode!
 
 Standalone only:
 - Fonts pane was removed altogether, and 'Open Directory' button was replaced with a proper 'Open' button (support opening multiple files at once).

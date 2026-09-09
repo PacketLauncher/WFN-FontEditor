@@ -11,16 +11,17 @@ namespace AGS.Plugin.FontEditor
 {
 	public class Settings
 	{
-		public Color Color;
-		public bool Grid;
-		public bool GridFix;
-		public string CustomText;
-		
-		private XmlDocument doc = new XmlDocument();
+        public Color Color;
+        public bool Grid;
+        public bool GridFix;
+        public bool DarkMode;
+        public string CustomText;
+
+        private XmlDocument doc = new XmlDocument();
 		private string Filename = @"WFN-FontEditor.xml";
 		private string PartOne = "<?xml version=\"1.0\" encoding=\"utf-8\"?>\r\n<?xml-stylesheet type=\"text/xsl\" href=\"xsl/installation.xsl\"?>\r\n<FontEditor><Color>-12566464</Color><Text>";
-		private string PartTwo = "</Text><Grid>false</Grid><GridFix>false</GridFix></FontEditor>";
-		private string PartComplete = "";
+        private string PartTwo = "</Text><Grid>false</Grid><GridFix>false</GridFix><DarkMode>false</DarkMode></FontEditor>";
+        private string PartComplete = "";
 
 		private bool CreateFile(string filename)
 		{
@@ -62,7 +63,10 @@ namespace AGS.Plugin.FontEditor
 			try { GridFix = bool.Parse(((XmlNode)doc.SelectSingleNode("FontEditor/GridFix")).InnerText); }
 			catch { GridFix = false; }
 
-			try { CustomText = ((XmlNode)doc.SelectSingleNode("FontEditor/Text")).InnerText; }
+            try { DarkMode = bool.Parse(((XmlNode)doc.SelectSingleNode("FontEditor/DarkMode")).InnerText); }
+            catch { DarkMode = false; }
+
+            try { CustomText = ((XmlNode)doc.SelectSingleNode("FontEditor/Text")).InnerText; }
 			catch { CustomText = ""; }
 
 			try { Color = Color.FromArgb(int.Parse(((XmlNode)doc.SelectSingleNode("FontEditor/Color")).InnerText)); }
@@ -86,8 +90,20 @@ namespace AGS.Plugin.FontEditor
 				
 				try { ((XmlNode)doc.SelectSingleNode("FontEditor/GridFix")).InnerText = GridFix.ToString(); }
 				catch { ((XmlNode)doc.CreateElement("GridFix")).InnerText = GridFix.ToString(); }
-				
-				try { ((XmlNode)doc.SelectSingleNode("FontEditor/Text")).InnerText = CustomText;}
+
+                try
+                {
+                    ((XmlNode)doc.SelectSingleNode("FontEditor/DarkMode")).InnerText =
+                        DarkMode.ToString();
+                }
+                catch
+                {
+                    XmlNode node = doc.CreateElement("DarkMode");
+                    node.InnerText = DarkMode.ToString();
+                    doc.DocumentElement.AppendChild(node);
+                }
+
+                try { ((XmlNode)doc.SelectSingleNode("FontEditor/Text")).InnerText = CustomText;}
 				catch { ((XmlNode)doc.CreateElement("Text")).InnerText = CustomText; }
 
 				try { ((XmlNode)doc.SelectSingleNode("FontEditor/Color")).InnerText = Color.ToArgb().ToString(); }
@@ -98,15 +114,20 @@ namespace AGS.Plugin.FontEditor
 			return true;
 		}
 
-		public static DialogResult InputBox(string title, string promptText, ref string value)
-		{
+        public static DialogResult InputBox(
+			string title,
+			string promptText,
+			ref string value,
+			bool showReverseButton = false)
+        {
 			Form form = new Form();
 			Label label = new Label();
 			TextBox textBox = new TextBox();
 			Button buttonOk = new Button();
 			Button buttonCancel = new Button();
+            Button buttonReverse = new Button();
 
-			form.Text = title;
+            form.Text = title;
 			label.Text = promptText;
 			textBox.Text = value;
 
@@ -115,19 +136,41 @@ namespace AGS.Plugin.FontEditor
 			buttonOk.DialogResult = DialogResult.OK;
 			buttonCancel.DialogResult = DialogResult.Cancel;
 
-			label.SetBounds(9, 20, 372, 13);
+            buttonReverse.Text = "Reverse";
+            buttonReverse.Size = new System.Drawing.Size(75, 23);
+            buttonReverse.Visible = showReverseButton;
+
+            buttonReverse.Click += delegate
+            {
+                char[] chars = textBox.Text.ToCharArray();
+                Array.Reverse(chars);
+                textBox.Text = new string(chars);
+
+                // Keep focus in the textbox and select the reversed result.
+                textBox.Focus();
+                textBox.SelectAll();
+            };
+
+            label.SetBounds(9, 20, 372, 13);
 			textBox.SetBounds(12, 36, 372, 20);
-			buttonOk.SetBounds(228, 72, 75, 23);
-			buttonCancel.SetBounds(309, 72, 75, 23);
-
-			label.AutoSize = true;
+            buttonReverse.SetBounds(12, 72, 75, 23);
+            buttonOk.SetBounds(228, 72, 75, 23);
+            buttonCancel.SetBounds(309, 72, 75, 23);
+            label.AutoSize = true;
 			textBox.Anchor = textBox.Anchor | AnchorStyles.Right;
-			buttonOk.Anchor = AnchorStyles.Bottom | AnchorStyles.Right;
+            buttonReverse.Anchor = AnchorStyles.Bottom | AnchorStyles.Left;
+            buttonOk.Anchor = AnchorStyles.Bottom | AnchorStyles.Right;
 			buttonCancel.Anchor = AnchorStyles.Bottom | AnchorStyles.Right;
-
 			form.ClientSize = new Size(396, 107);
-			form.Controls.AddRange(new Control[] { label, textBox, buttonOk, buttonCancel });
-			form.ClientSize = new Size(Math.Max(300, label.Right + 10), form.ClientSize.Height);
+            form.Controls.AddRange(new Control[]
+			{
+				label,
+				textBox,
+				buttonReverse,
+				buttonOk,
+				buttonCancel
+			});
+            form.ClientSize = new Size(Math.Max(300, label.Right + 10), form.ClientSize.Height);
 			form.FormBorderStyle = FormBorderStyle.FixedDialog;
 			form.StartPosition = FormStartPosition.CenterScreen;
 			form.MinimizeBox = false;
