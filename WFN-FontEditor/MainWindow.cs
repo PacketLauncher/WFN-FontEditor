@@ -197,11 +197,17 @@ namespace WFN_FontEditor
                 return true;
             }
 
-            if (TabControl.SelectedTab != null &&
-                TabControl.SelectedTab.Controls.Count > 0)
+            if (TabControl.TabPages.Count > 0 &&
+                TabControl.SelectedIndex >= 0 &&
+                TabControl.SelectedIndex < TabControl.TabPages.Count)
             {
+                TabPage activeTab =
+                    TabControl.TabPages[TabControl.SelectedIndex];
+
                 FontEditorPane activePane =
-                    TabControl.SelectedTab.Controls[0] as FontEditorPane;
+                    activeTab.Controls.Count > 0
+                        ? activeTab.Controls[0] as FontEditorPane
+                        : null;
 
                 if (activePane != null)
                 {
