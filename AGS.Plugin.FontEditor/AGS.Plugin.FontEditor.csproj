@@ -60,6 +60,10 @@
     <Reference Include="System.XML" />
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="..\WFN-FontEditor\PngExportDialog.cs">
+      <Link>PngExportDialog.cs</Link>
+      <SubType>Form</SubType>
+    </Compile>
     <Compile Include="common.cs" />
     <Compile Include="FontEditorPane.cs">
       <SubType>UserControl</SubType>
@@ -68,6 +72,9 @@
       <DependentUpon>FontEditorPane.cs</DependentUpon>
     </Compile>
     <Compile Include="FontInfo.cs" />
+    <Compile Include="GlyphFlowLayoutPanel.cs">
+      <SubType>Component</SubType>
+    </Compile>
     <Compile Include="indexed_copy.cs" />
     <Compile Include="Plugin.cs" />
     <Compile Include="PluginLoader.cs" />
@@ -89,10 +96,12 @@
   <ItemGroup>
     <EmbeddedResource Include="FontEditorPane.resx">
       <DependentUpon>FontEditorPane.cs</DependentUpon>
+      <SubType>Designer</SubType>
     </EmbeddedResource>
     <EmbeddedResource Include="Properties\Resources.resx">
       <Generator>ResXFileCodeGenerator</Generator>
       <LastGenOutput>Resources.Designer.cs</LastGenOutput>
+      <SubType>Designer</SubType>
     </EmbeddedResource>
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
