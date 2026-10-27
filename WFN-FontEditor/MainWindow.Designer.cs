@@ -43,7 +43,7 @@
             // 
             this.BtnNew.Location = new System.Drawing.Point(12, 12);
             this.BtnNew.Name = "BtnNew";
-            this.BtnNew.Size = new System.Drawing.Size(100, 23);
+            this.BtnNew.Size = new System.Drawing.Size(101, 23);
             this.BtnNew.TabIndex = 1;
             this.BtnNew.Text = "New...        Ctrl+N";
             this.BtnNew.UseVisualStyleBackColor = true;
@@ -53,7 +53,7 @@
             // 
             this.BtnOpen.Location = new System.Drawing.Point(118, 12);
             this.BtnOpen.Name = "BtnOpen";
-            this.BtnOpen.Size = new System.Drawing.Size(100, 23);
+            this.BtnOpen.Size = new System.Drawing.Size(102, 23);
             this.BtnOpen.TabIndex = 1;
             this.BtnOpen.Text = "Open...       Ctrl+O";
             this.BtnOpen.UseVisualStyleBackColor = true;
@@ -77,7 +77,7 @@
             this.TabControl.Location = new System.Drawing.Point(12, 41);
             this.TabControl.Name = "TabControl";
             this.TabControl.SelectedIndex = 0;
-            this.TabControl.Size = new System.Drawing.Size(957, 527);
+            this.TabControl.Size = new System.Drawing.Size(730, 549);
             this.TabControl.TabIndex = 2;
             // 
             // BtnSave
@@ -94,7 +94,7 @@
             // 
             this.BtnSaveAs.Location = new System.Drawing.Point(436, 12);
             this.BtnSaveAs.Name = "BtnSaveAs";
-            this.BtnSaveAs.Size = new System.Drawing.Size(134, 23);
+            this.BtnSaveAs.Size = new System.Drawing.Size(136, 23);
             this.BtnSaveAs.TabIndex = 1;
             this.BtnSaveAs.Text = "Save As...     Ctrl+Shift+S";
             this.BtnSaveAs.UseVisualStyleBackColor = true;
@@ -106,14 +106,14 @@
             this.BtnConvert.Name = "BtnConvert";
             this.BtnConvert.Size = new System.Drawing.Size(120, 23);
             this.BtnConvert.TabIndex = 1;
-            this.BtnConvert.Text = "SCI/WFN conversion";
+            this.BtnConvert.Text = "SCI/WFN Conversion";
             this.BtnConvert.UseVisualStyleBackColor = true;
             this.BtnConvert.Click += new System.EventHandler(this.BtnConvert_Click);
             // 
             // BtnAbout
             // 
             this.BtnAbout.Anchor = ((System.Windows.Forms.AnchorStyles)((System.Windows.Forms.AnchorStyles.Top | System.Windows.Forms.AnchorStyles.Right)));
-            this.BtnAbout.Location = new System.Drawing.Point(890, 12);
+            this.BtnAbout.Location = new System.Drawing.Point(662, 12);
             this.BtnAbout.Name = "BtnAbout";
             this.BtnAbout.Size = new System.Drawing.Size(80, 23);
             this.BtnAbout.TabIndex = 1;
@@ -125,7 +125,7 @@
             // 
             this.AutoScaleDimensions = new System.Drawing.SizeF(6F, 13F);
             this.AutoScaleMode = System.Windows.Forms.AutoScaleMode.Font;
-            this.ClientSize = new System.Drawing.Size(981, 580);
+            this.ClientSize = new System.Drawing.Size(753, 602);
             this.Controls.Add(this.TabControl);
             this.Controls.Add(this.BtnConvert);
             this.Controls.Add(this.BtnAbout);
