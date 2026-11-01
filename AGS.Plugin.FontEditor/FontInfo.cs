@@ -12,6 +12,13 @@ namespace AGS.Plugin.FontEditor
         public UInt16 Height;
         public byte[] ByteLines;
 
+        // Pixel depth: 1 for legacy WFN/SCI, 4 for extended WFN.
+        public int BitDepth = 1;
+
+        // Whether this character has an entry in the WFN File 2 character map.
+        // A mapped glyph may legitimately have zero width or height.
+        public bool HasGlyphMapping = false;
+
         public UInt16 WidthOriginal;
         public UInt16 HeightOriginal;
         public byte[] ByteLinesOriginal;
@@ -23,18 +30,21 @@ namespace AGS.Plugin.FontEditor
         {
             public UInt16 Width;
             public UInt16 Height;
+            public int BitDepth;
+
             public byte[] ByteLines;
         }
 
         private List<UndoState> UndoRedoList = new List<UndoState>();
         public Int32 UndoRedoPosition = 0;
 
-        public void UndoRedoListAdd(byte[] bytearray)
+        public void UndoRedoListAdd(byte[] bytearray, bool force = false)
         {
             UndoState newState = new UndoState();
 
             newState.Width = Width;
             newState.Height = Height;
+            newState.BitDepth = BitDepth;
 
             if (bytearray != null)
                 newState.ByteLines = (byte[])bytearray.Clone();
@@ -49,8 +59,10 @@ namespace AGS.Plugin.FontEditor
             {
                 UndoState current = UndoRedoList[UndoRedoPosition];
 
-                if (current.Width == newState.Width &&
+                if (!force &&
+                    current.Width == newState.Width &&
                     current.Height == newState.Height &&
+                    current.BitDepth == newState.BitDepth &&
                     ArraysEqual(current.ByteLines, newState.ByteLines))
                 {
                     return;
@@ -91,6 +103,7 @@ namespace AGS.Plugin.FontEditor
 
                 Width = state.Width;
                 Height = state.Height;
+                BitDepth = state.BitDepth;
 
                 if (state.ByteLines != null)
                     ByteLines = (byte[])state.ByteLines.Clone();
@@ -108,6 +121,7 @@ namespace AGS.Plugin.FontEditor
 
                 Width = state.Width;
                 Height = state.Height;
+                BitDepth = state.BitDepth;
 
                 if (state.ByteLines != null)
                     ByteLines = (byte[])state.ByteLines.Clone();
@@ -199,14 +213,125 @@ namespace AGS.Plugin.FontEditor
         }
     }
 
+    public static class WFNBitDepthConverter
+    {
+        public static void ConvertGlyph(CCharInfo glyph, int targetBitDepth)
+        {
+            if (glyph == null || glyph.BitDepth == targetBitDepth)
+                return;
+
+            if (targetBitDepth != 1 && targetBitDepth != 4)
+                throw new ArgumentOutOfRangeException(nameof(targetBitDepth));
+
+            int width = glyph.Width;
+            int height = glyph.Height;
+
+            int sourceStride = glyph.BitDepth == 4
+                ? (width + 1) / 2
+                : (width + 7) / 8;
+
+            int targetStride = targetBitDepth == 4
+                ? (width + 1) / 2
+                : (width + 7) / 8;
+
+            byte[] converted = new byte[targetStride * height];
+
+            for (int y = 0; y < height; y++)
+            {
+                for (int x = 0; x < width; x++)
+                {
+                    int sourceIndex = y * sourceStride +
+                        (glyph.BitDepth == 4 ? x / 2 : x / 8);
+
+                    byte source = glyph.ByteLines != null &&
+                        sourceIndex < glyph.ByteLines.Length
+                        ? glyph.ByteLines[sourceIndex]
+                        : (byte)0;
+
+                    int shade;
+
+                    if (glyph.BitDepth == 4)
+                        shade = (x % 2 == 0)
+                            ? (source >> 4)
+                            : (source & 0x0F);
+                    else
+                        shade = (source & (0x80 >> (x % 8))) != 0
+                            ? (targetBitDepth == 4 ? 8 : 15)
+                            : 0;
+
+                    int targetIndex = y * targetStride +
+                        (targetBitDepth == 4 ? x / 2 : x / 8);
+
+                    if (targetBitDepth == 4)
+                    {
+                        if (x % 2 == 0)
+                            converted[targetIndex] |= (byte)(shade << 4);
+                        else
+                            converted[targetIndex] |= (byte)shade;
+                    }
+                    else if (shade > 0)
+                    {
+                        converted[targetIndex] |= (byte)(0x80 >> (x % 8));
+                    }
+                }
+            }
+
+            glyph.ByteLines = converted;
+            glyph.BitDepth = targetBitDepth;
+        }
+    }
+
     public class CWFNFontInfo : CFontInfo
     {
+        public bool Is4Bit { get; private set; }
+
+        // Font-wide base shade for 4-bit WFN fonts.
+        public uint BaseShadeIndex { get; set; } = 8;
+
+        public void SetBitDepth(bool use4Bit)
+        {
+            Is4Bit = use4Bit;
+            WFNName = use4Bit
+                ? "WGT Font File 2"
+                : "WGT Font File  ";
+        }
+
+        public void ConvertBitDepth(bool use4Bit)
+        {
+            if (Is4Bit == use4Bit)
+                return;
+
+            if (Character == null)
+                throw new InvalidOperationException("No font data to convert.");
+
+            int targetBitDepth = use4Bit ? 4 : 1;
+
+            foreach (CCharInfo glyph in Character)
+            {
+                if (glyph != null)
+                    WFNBitDepthConverter.ConvertGlyph(glyph, targetBitDepth);
+            }
+
+            SetBitDepth(use4Bit);
+        }
+
         public override void Read(System.IO.BinaryReader binaryReader)
         {
             byte[] name = binaryReader.ReadBytes(15);
             WFNName = ByteArrayToString(name);
 
-            UInt16 offset = binaryReader.ReadUInt16();
+            Is4Bit = (WFNName == "WGT Font File 2");
+
+            if (!Is4Bit && WFNName != "WGT Font File  ")
+                throw new System.IO.InvalidDataException("Unsupported WFN font signature.");
+
+            if (Is4Bit)
+            {
+                ReadWFNFile2(binaryReader);
+                return;
+            }
+
+            long offset = binaryReader.ReadUInt16();
 
             // Offsets table starts at "offset"
             binaryReader.BaseStream.Position = offset;
@@ -214,18 +339,24 @@ namespace AGS.Plugin.FontEditor
             long bytesLeft = binaryReader.BaseStream.Length - offset;
             if (bytesLeft < 0) bytesLeft = 0;
 
-            int numChars = (int)(bytesLeft / 2);
+            int offsetSize = Is4Bit ? 4 : 2;
+
+            int numChars = (int)(bytesLeft / offsetSize);
             NumberOfCharacters = numChars;
 
-            UInt16[] positionArray = new UInt16[numChars];
+            UInt32[] positionArray = new UInt32[numChars];
             Character = new CCharInfo[numChars];
 
             for (int i = 0; i < numChars; i++)
-                positionArray[i] = binaryReader.ReadUInt16();
+            {
+                positionArray[i] = Is4Bit
+                    ? binaryReader.ReadUInt32()
+                    : binaryReader.ReadUInt16();
+            }
 
             for (int i = 0; i < numChars; i++)
             {
-                UInt16 pos = positionArray[i];
+                UInt32 pos = positionArray[i];
 
                 // offset==0 means "missing/placeholder glyph"
                 if (pos == 0)
@@ -233,6 +364,7 @@ namespace AGS.Plugin.FontEditor
                     Character[i] = new CCharInfo
                     {
                         Index = i,
+                        BitDepth = Is4Bit ? 4 : 1,
                         Width = 0,
                         Height = 0,
                         WidthOriginal = 0,
@@ -247,6 +379,7 @@ namespace AGS.Plugin.FontEditor
 
                 var ch = new CCharInfo();
                 ch.Index = i;
+                ch.BitDepth = Is4Bit ? 4 : 1;
 
                 ch.Width = binaryReader.ReadUInt16();
                 ch.Height = binaryReader.ReadUInt16();
@@ -262,7 +395,10 @@ namespace AGS.Plugin.FontEditor
                     continue;
                 }
 
-                int bytesPerLine = (ch.Width - 1) / 8 + 1;
+                int bytesPerLine = Is4Bit
+                    ? (ch.Width + 1) / 2
+                    : (ch.Width + 7) / 8;
+
                 int totalBytes = ch.Height * bytesPerLine;
 
                 // Defensive: don't read beyond stream
@@ -275,6 +411,340 @@ namespace AGS.Plugin.FontEditor
 
                 Character[i] = ch;
             }
+        }
+
+        private void ReadWFNFile2(System.IO.BinaryReader reader)
+        {
+            System.IO.Stream stream = reader.BaseStream;
+            long fileLength = stream.Length;
+
+            if (fileLength < 43)
+                throw new System.IO.InvalidDataException(
+                    "WFN File 2 header is incomplete.");
+
+            uint headerSize = reader.ReadUInt32();
+            uint flags = reader.ReadUInt32();
+            uint bitsPerPixel = reader.ReadUInt32();
+            uint glyphTableAddress = reader.ReadUInt32();
+            uint glyphTableSize = reader.ReadUInt32();
+            uint characterTableAddress = reader.ReadUInt32();
+            uint characterTableSize = reader.ReadUInt32();
+
+            if ((headerSize != 28 && headerSize != 32) ||
+                15L + headerSize > fileLength)
+            {
+                throw new System.IO.InvalidDataException(
+                    "Invalid WFN File 2 header size.");
+            }
+
+            // Older 28-byte headers have no BaseShadeIndex.
+            // Use the default shade 8 when loading these fonts.
+            uint baseShadeIndex = 8;
+
+            if (headerSize == 32)
+            {
+                baseShadeIndex = reader.ReadUInt32();
+            }
+
+            if (baseShadeIndex < 1 || baseShadeIndex > 15)
+                throw new System.IO.InvalidDataException(
+                    "Invalid WFN File 2 base shade index.");
+
+            BaseShadeIndex = baseShadeIndex;
+
+            if (flags != 0)
+                throw new System.IO.InvalidDataException(
+                    "Unsupported WFN File 2 flags.");
+
+            if (bitsPerPixel != 4)
+                throw new System.IO.InvalidDataException(
+                    "Unsupported WFN File 2 pixel depth.");
+
+            if (characterTableSize % 8 != 0)
+                throw new System.IO.InvalidDataException(
+                    "Invalid WFN File 2 character table size.");
+
+            long glyphStart = glyphTableAddress;
+            long glyphEnd = glyphStart + glyphTableSize;
+            long mapStart = characterTableAddress;
+            long mapEnd = mapStart + characterTableSize;
+            long headerEnd = 15L + headerSize;
+
+            if (glyphStart < headerEnd || glyphEnd > fileLength ||
+                mapStart < headerEnd || mapEnd > fileLength ||
+                (glyphStart < mapEnd && mapStart < glyphEnd))
+            {
+                throw new System.IO.InvalidDataException(
+                    "Invalid or overlapping WFN File 2 tables.");
+            }
+
+            int entryCount = checked((int)(characterTableSize / 8));
+            var mappings = new List<KeyValuePair<int, uint>>(entryCount);
+
+            stream.Position = mapStart;
+
+            int previousCode = -1;
+            int highestCode = 0;
+
+            for (int i = 0; i < entryCount; i++)
+            {
+                uint code = reader.ReadUInt32();
+                uint offset = reader.ReadUInt32();
+
+                if (code > 65535 || code <= previousCode)
+                    throw new System.IO.InvalidDataException(
+                        "Invalid or unsorted WFN File 2 character code.");
+
+                if (offset >= glyphTableSize)
+                    throw new System.IO.InvalidDataException(
+                        "Invalid WFN File 2 glyph offset.");
+
+                previousCode = (int)code;
+                highestCode = (int)code;
+
+                mappings.Add(
+                    new KeyValuePair<int, uint>((int)code, offset));
+            }
+
+            Character = new CCharInfo[highestCode + 1];
+            NumberOfCharacters = Character.Length;
+
+            // Keep missing character slots distinct from mapped glyphs.
+            for (int i = 0; i < Character.Length; i++)
+            {
+                Character[i] = new CCharInfo
+                {
+                    Index = i,
+                    BitDepth = 4,
+                    Width = 0,
+                    Height = 0,
+                    WidthOriginal = 0,
+                    HeightOriginal = 0,
+                    ByteLines = null,
+                    ByteLinesOriginal = null
+                };
+            }
+
+            foreach (var mapping in mappings)
+            {
+                long glyphPosition = glyphStart + mapping.Value;
+
+                if (glyphPosition + 4 > glyphEnd)
+                    throw new System.IO.InvalidDataException(
+                        "Incomplete WFN File 2 glyph record.");
+
+                stream.Position = glyphPosition;
+
+                ushort width = reader.ReadUInt16();
+                ushort height = reader.ReadUInt16();
+
+                long stride = (width + 1L) / 2;
+                long byteCount = stride * height;
+
+                if (stream.Position + byteCount > glyphEnd)
+                    throw new System.IO.InvalidDataException(
+                        "WFN File 2 glyph data exceeds its table.");
+
+                byte[] pixels = reader.ReadBytes((int)byteCount);
+
+                CCharInfo glyph = Character[mapping.Key];
+
+                glyph.HasGlyphMapping = true;
+                glyph.Width = width;
+                glyph.Height = height;
+                glyph.WidthOriginal = width;
+                glyph.HeightOriginal = height;
+                glyph.ByteLines = pixels;
+                glyph.ByteLinesOriginal = (byte[])pixels.Clone();
+            }
+        }
+
+        private void WriteWFNFile2(System.IO.BinaryWriter writer)
+        {
+            if (Character == null)
+                throw new InvalidOperationException("No font data to save.");
+
+            if (Character.Length > 65536)
+                throw new InvalidOperationException(
+                    "WFN File 2 currently supports character codes 0–65535.");
+
+            // Collect actual glyph mappings in ascending character-code order.
+            var mappings = new List<KeyValuePair<uint, uint>>();
+
+            // Signature: 15 bytes.
+            writer.Write(StringToByteArray("WGT Font File 2"));
+
+            // Reserve the 32-byte WFN File 2 header.
+            long headerPosition = writer.BaseStream.Position;
+
+            for (int i = 0; i < 8; i++)
+                writer.Write((uint)0);
+
+            // Glyph-data table begins immediately after the header.
+            long glyphTableStart = writer.BaseStream.Position;
+
+            for (int i = 0; i < Character.Length; i++)
+            {
+                CCharInfo glyph = Character[i];
+
+                if (glyph == null)
+                    continue;
+
+                // Preserve explicitly mapped zero-sized glyphs.
+                // Also include newly drawn glyphs that have bitmap dimensions.
+                bool hasMapping = glyph.HasGlyphMapping ||
+                                  (glyph.Width > 0 && glyph.Height > 0);
+
+                if (!hasMapping)
+                    continue;
+
+                if (glyph.BitDepth != 4)
+                    throw new InvalidOperationException(
+                        "Cannot save WFN File 2 containing non-4-bit glyphs.");
+
+                long relativeOffset =
+                    writer.BaseStream.Position - glyphTableStart;
+
+                if (relativeOffset > uint.MaxValue)
+                    throw new InvalidOperationException(
+                        "WFN File 2 glyph table exceeds its offset limit.");
+
+                mappings.Add(new KeyValuePair<uint, uint>(
+                    (uint)i, (uint)relativeOffset));
+
+                writer.Write(glyph.Width);
+                writer.Write(glyph.Height);
+
+                int stride = (glyph.Width + 1) / 2;
+                int byteCount = stride * glyph.Height;
+
+                byte[] pixels = new byte[byteCount];
+
+                if (glyph.ByteLines != null)
+                {
+                    Array.Copy(
+                        glyph.ByteLines,
+                        pixels,
+                        Math.Min(glyph.ByteLines.Length, pixels.Length));
+                }
+
+                writer.Write(pixels);
+            }
+
+            long glyphTableEnd = writer.BaseStream.Position;
+            long characterTableStart = glyphTableEnd;
+
+            // Sparse character map: code (uint32), offset (uint32).
+            foreach (var mapping in mappings)
+            {
+                writer.Write(mapping.Key);
+                writer.Write(mapping.Value);
+            }
+
+            long characterTableEnd = writer.BaseStream.Position;
+
+            // Validate 32-bit address and size limits.
+            if (glyphTableStart > uint.MaxValue ||
+                characterTableStart > uint.MaxValue ||
+                glyphTableEnd - glyphTableStart > uint.MaxValue ||
+                characterTableEnd - characterTableStart > uint.MaxValue)
+            {
+                throw new InvalidOperationException(
+                    "WFN File 2 exceeds its 32-bit table limits.");
+            }
+
+            // Fill in the reserved header.
+            writer.BaseStream.Position = headerPosition;
+
+            writer.Write((uint)32); // HeaderSize
+            writer.Write((uint)0);  // Flags
+            writer.Write((uint)4);  // BitsPerPixel
+
+            writer.Write((uint)glyphTableStart);
+            writer.Write((uint)(glyphTableEnd - glyphTableStart));
+
+            writer.Write((uint)characterTableStart);
+            writer.Write((uint)(characterTableEnd - characterTableStart));
+
+            if (BaseShadeIndex < 1 || BaseShadeIndex > 15)
+                throw new InvalidOperationException(
+                    "Base shade index must be between 1 and 15.");
+
+            writer.Write(BaseShadeIndex); // BaseShadeIndex
+
+            // Restore the stream position.
+            writer.BaseStream.Position = characterTableEnd;
+        }
+
+        private void Write4Bit(System.IO.BinaryWriter writer)
+        {
+            if (Character == null)
+                throw new InvalidOperationException("No font data to save.");
+
+            writer.Write(StringToByteArray("WGT Font 4bit  "));
+            writer.Write((UInt32)0); // Offset table position, patched later.
+
+            int lastUsedIndex = -1;
+
+            for (int i = Character.Length - 1; i >= 0; i--)
+            {
+                CCharInfo glyph = Character[i];
+
+                if (glyph != null && glyph.Width > 0 && glyph.Height > 0)
+                {
+                    lastUsedIndex = i;
+                    break;
+                }
+            }
+
+            if (lastUsedIndex < 0)
+                lastUsedIndex = 0;
+
+            UInt32[] offsets = new UInt32[lastUsedIndex + 1];
+
+            for (int i = 0; i <= lastUsedIndex; i++)
+            {
+                CCharInfo glyph = i < Character.Length ? Character[i] : null;
+
+                if (glyph == null || glyph.Width == 0 || glyph.Height == 0)
+                    continue;
+
+                if (glyph.BitDepth != 4)
+                    throw new InvalidOperationException(
+                        "Cannot save a 4-bit WFN containing non-4-bit glyphs.");
+
+                long position = writer.BaseStream.Position;
+
+                if (position > UInt32.MaxValue)
+                    throw new InvalidOperationException("4-bit WFN exceeds its offset limit.");
+
+                offsets[i] = (UInt32)position;
+
+                writer.Write(glyph.Width);
+                writer.Write(glyph.Height);
+
+                int stride = (glyph.Width + 1) / 2;
+                int byteCount = stride * glyph.Height;
+
+                byte[] pixels = new byte[byteCount];
+
+                if (glyph.ByteLines != null)
+                    Array.Copy(glyph.ByteLines, pixels,
+                        Math.Min(glyph.ByteLines.Length, pixels.Length));
+
+                writer.Write(pixels);
+            }
+
+            long tablePosition = writer.BaseStream.Position;
+
+            if (tablePosition > UInt32.MaxValue)
+                throw new InvalidOperationException("4-bit WFN exceeds its offset limit.");
+
+            foreach (UInt32 offset in offsets)
+                writer.Write(offset);
+
+            writer.BaseStream.Position = 15;
+            writer.Write((UInt32)tablePosition);
         }
 
         private static void ThrowWfnTooLarge()
@@ -312,6 +782,12 @@ namespace AGS.Plugin.FontEditor
 
         public override void Write(System.IO.BinaryWriter binaryWriter)
         {
+            if (Is4Bit)
+            {
+                WriteWFNFile2(binaryWriter);
+                return;
+            }
+
             if (Character == null)
                 throw new Exception("No font data to save (Character array is null).");
 
@@ -461,7 +937,7 @@ namespace AGS.Plugin.FontEditor
             if (Character != null && Character.Length > glyphLimit)
             {
                 DialogResult result = MessageBox.Show(
-                    $"Warning!\n\nSCI fonts are limited to 256 glyphs (0–255).\n\nThe current font contains {Character.Length} glyphs.\n\nAll glyphs beyond 256 will NOT be saved.\n\nContinue?",
+                    $"Warning!\n\nSCI fonts are limited to 256 glyphs (0–255).\n\nThe current font contains {Character.Length} glyphs.\n\nAll glyphs beyond index 255 will NOT be saved.\n\nContinue?",
                     "SCI Glyph Limit",
                     MessageBoxButtons.OKCancel,
                     MessageBoxIcon.Warning);
@@ -572,6 +1048,51 @@ namespace AGS.Plugin.FontEditor
 
         public static void CreateBitmap(CCharInfo character, out Bitmap bmp)
         {
+            if (character.BitDepth == 4)
+            {
+                if (character.Width == 0 || character.Height == 0)
+                {
+                    bmp = null;
+                    return;
+                }
+
+                bmp = new Bitmap(
+                    character.Width,
+                    character.Height,
+                    PixelFormat.Format32bppArgb);
+
+                int bytesPerLine = (character.Width + 1) / 2;
+
+                for (int y = 0; y < character.Height; y++)
+                {
+                    for (int x = 0; x < character.Width; x++)
+                    {
+                        int byteIndex = y * bytesPerLine + x / 2;
+
+                        int shade = 0;
+
+                        if (character.ByteLines != null &&
+                            byteIndex < character.ByteLines.Length)
+                        {
+                            byte packed = character.ByteLines[byteIndex];
+
+                            shade = (x % 2 == 0)
+                                ? (packed >> 4)
+                                : (packed & 0x0F);
+                        }
+
+                        int intensity = shade * 17;
+
+                        bmp.SetPixel(
+                            x,
+                            y,
+                            Color.FromArgb(intensity, intensity, intensity));
+                    }
+                }
+
+                return;
+            }
+
             if (character.Width == 0 || character.Height == 0)
             {
                 bmp = null;
@@ -652,7 +1173,7 @@ namespace AGS.Plugin.FontEditor
                         throw new Exception("Cannot save: Character array contains null glyph entries.");
                 }
 
-                if (wfn.EstimateSize() > 65535)
+                if (!wfn.Is4Bit && wfn.EstimateSize() > 65535)
                 {
                     System.Windows.Forms.MessageBox.Show(
                         "Font exceeds 64KB. The WFN format used by AGS does not support files larger than 65,535 bytes.",
